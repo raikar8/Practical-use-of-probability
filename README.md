@@ -69,9 +69,9 @@ on the audio block size.
 
 ## Where to go next
 
-* Replace the synthetic speech with your own recordings (the VAD page takes WAV uploads).
+* Record yourself in a car, next to a fan or with music playing, and compare the detectors and suppressors on real noise.
 * Particle-filter the netcode demo, or put an IMM into it ("running" vs "juking" models).
 * Template the C++ canceller on `float`, and add a howling detector (exercise 4 follow-ups in `cpp/README.md`).
 
-Data is simulated by default, so every estimate can be compared with the hidden truth. The audio and market pages also accept your own WAV / CSV files. This is for learning only;
+Data is simulated by default, so every estimate can be compared with the hidden truth. The audio pages also let you **record from your microphone** in the browser (or upload a WAV), and the market page accepts a CSV of prices. This is for learning only;
 nothing here is financial advice.

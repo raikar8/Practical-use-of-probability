@@ -32,7 +32,7 @@ with st.expander("The model (open for the math)"):
 
 c1, c2 = st.columns([1, 2.4])
 with c1:
-    src = st.radio("Audio", ["Synthetic speech in noise (truth known)", "Upload a WAV"])
+    src = st.radio("Audio", ["Synthetic speech in noise (truth known)", "Your own voice: record or upload"])
     truth = None
     if src.startswith("Synthetic"):
         noise = st.selectbox("Noise", ["car", "white", "babble"], format_func={
@@ -49,11 +49,13 @@ with c1:
         scene = _scene(dur, snr, noise, seed)
         audio, clean, mask = scene["noisy"], scene["clean"], scene["mask"]
     else:
-        up = st.file_uploader("WAV file (mono or stereo, any rate; first 60 s are used)", type=["wav"])
-        if up is None:
-            st.info("Upload a WAV to continue, e.g. a recording from a car voice-assistant test.")
+        rec = ui.real_audio("vad")
+        if rec is None:
+            st.info("Record a few seconds of speech with pauses, or upload a WAV (e.g. from a car "
+                    "voice-assistant test). There's no ground truth for real audio, so the page shows the "
+                    "detectors' decisions and lets you listen to them.")
             st.stop()
-        audio, clean, mask = sp.load_wav(up.getvalue()), None, None
+        audio, clean, mask = rec, None, None
     st.divider()
     margin = st.slider("Energy VAD: dB above the noise floor", 1.0, 20.0, 6.0, 0.5)
     learn_A = st.toggle("Use the duration prior learned by EM", False,

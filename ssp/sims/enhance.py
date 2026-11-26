@@ -177,3 +177,20 @@ def make_scene(duration: float, snr_db: float, noise: str, ramp_db: float, seed:
     x = sp.mix_at_snr(s, mask, w, snr_db)
     noise_part = (x - s) * env
     return {"clean": s, "noisy": s + noise_part, "noise": noise_part, "mask": mask}
+
+
+def blind_levels(noisy: np.ndarray, est: np.ndarray, frame: int = 512, quiet_pct: float = 20,
+                 loud_pct: float = 80) -> dict:
+    """Measures that need no clean reference (for your own recordings).
+
+    The quietest frames of the input are almost surely pauses (noise only) and the
+    loudest are almost surely speech. A good suppressor lowers the first a lot and
+    the second very little.
+    """
+    n = (min(len(noisy), len(est)) // frame) * frame
+    Pn = np.mean(noisy[:n].reshape(-1, frame) ** 2, axis=1) + 1e-15
+    Pe = np.mean(est[:n].reshape(-1, frame) ** 2, axis=1) + 1e-15
+    quiet = Pn <= np.percentile(Pn, quiet_pct)
+    loud = Pn >= np.percentile(Pn, loud_pct)
+    return {"noise reduction in pauses (dB)": float(10 * np.log10(Pn[quiet].mean() / Pe[quiet].mean())),
+            "level change on loud speech (dB)": float(10 * np.log10(Pe[loud].mean() / Pn[loud].mean()))}

@@ -135,3 +135,12 @@ def test_live_win_probabilities():
     preds, outcomes = sp.calibration_experiment(1.6, 1.1, 60, 3000, np.random.default_rng(0))
     mp, fr, _ = sp.calibration_bins(preds, outcomes, 5)
     assert np.max(np.abs(mp - fr)) < 0.06                   # calibrated
+
+
+def test_blind_levels_without_clean_reference():
+    from ssp.sims import enhance as en
+    sc = en.make_scene(8, 5, "car", 0, 2)
+    r = en.enhance(sc["noisy"])
+    bl = en.blind_levels(sc["noisy"], r["out"])
+    assert bl["noise reduction in pauses (dB)"] > 8
+    assert abs(bl["level change on loud speech (dB)"]) < 3

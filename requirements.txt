@@ -2,7 +2,7 @@ numpy>=1.26
 scipy>=1.11
 pandas>=2.0
 plotly>=5.20
-streamlit>=1.40
+streamlit>=1.50   # st.audio_input (microphone), st.navigation, width="stretch"
 
 # tests only
 pytest>=8

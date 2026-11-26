@@ -95,3 +95,28 @@ def header(level: str, title: str, question: str) -> None:
     st.caption(level)
     st.title(title)
     st.markdown(f"*{question}*")
+
+
+def real_audio(key: str, max_seconds: float = 60.0):
+    """Record from the browser microphone or upload a WAV. Returns mono float audio at 16 kHz, or None."""
+    from ssp.sims.speech import load_wav
+    how = st.radio("Real audio", ["Record with your microphone", "Upload a WAV"], key=f"{key}_how",
+                   horizontal=True)
+    if how.startswith("Record"):
+        label = "Press the mic, allow access when the browser asks, then press stop"
+        try:
+            data = st.audio_input(label, sample_rate=16000, key=f"{key}_rec")
+        except TypeError:                       # older Streamlit without sample_rate
+            data = st.audio_input(label, key=f"{key}_rec")
+        st.caption("Tip: stay quiet for the first second, then talk with a few pauses. A fan, traffic, a running "
+                   "tap or music in the background makes it interesting. Browsers may apply their own noise "
+                   "suppression to the mic; uploading a WAV from a recorder avoids that.")
+    else:
+        data = st.file_uploader("WAV file (mono or stereo, any rate)", type=["wav"], key=f"{key}_up")
+    if data is None:
+        return None
+    x = load_wav(data.getvalue(), max_seconds)
+    if x.size < 16000:
+        st.warning("That's under a second of audio. Record a few seconds with some pauses.")
+        return None
+    return x

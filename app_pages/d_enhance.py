@@ -42,18 +42,28 @@ from L0, run about 16,000 times a second (257 bins × 62.5 frames).
         )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        noise = st.selectbox("Noise", ["car", "white", "babble"], key="ns_noise", format_func={
-            "car": "Car cabin", "white": "White", "babble": "Babble"}.get)
-        snr = st.slider("Input SNR (dB)", -5, 20, 5, key="ns_snr")
-        ramp = st.slider("Noise gets louder half-way by (dB)", 0, 15, 10,
-                         help="The car accelerates: a noise estimate taken at the start goes stale")
+        ns_src = st.radio("Audio", ["Synthetic speech in noise (truth known)", "Your own voice: record or upload"],
+                          key="ns_src")
+        synthetic = ns_src.startswith("Synthetic")
+        rec = None
+        if synthetic:
+            noise = st.selectbox("Noise", ["car", "white", "babble"], key="ns_noise", format_func={
+                "car": "Car cabin", "white": "White", "babble": "Babble"}.get)
+            snr = st.slider("Input SNR (dB)", -5, 20, 5, key="ns_snr")
+            ramp = st.slider("Noise gets louder half-way by (dB)", 0, 15, 10,
+                             help="The car accelerates: a noise estimate taken at the start goes stale")
+        else:
+            rec = ui.real_audio("ns")
+            ramp = 0
         gain = st.selectbox("Gain rule", list(en.GAINS), index=3)
-        tracker = st.radio("Noise estimate", ["spp", "initial", "oracle"], format_func={
+        trackers = ["spp", "initial", "oracle"] if synthetic else ["spp", "initial"]
+        tracker = st.radio("Noise estimate", trackers, format_func={
             "spp": "SPP-MMSE tracker (adaptive)", "initial": "First 0.15 s only (frozen)",
             "oracle": "True average noise spectrum (cheating)"}.get)
         dd = st.select_slider("Decision-directed a (0 = ML estimate of ξ)", [0.0, 0.5, 0.9, 0.95, 0.98, 0.99], 0.98)
         gmin = st.slider("Gain floor (dB)", -40, -5, -25)
-        nseed = st.number_input("Random seed", 0, 9999, 1, key="ns_seed")
+        if synthetic:
+            nseed = st.number_input("Random seed", 0, 9999, 1, key="ns_seed")
 
     @st.cache_data(show_spinner="Enhancing…")
     def _ns(noise, snr, ramp, gain, tracker, dd, gmin, seed):
@@ -61,50 +71,74 @@ from L0, run about 16,000 times a second (257 bins × 62.5 frames).
         r = en.enhance(sc["noisy"], gain, tracker, dd_alpha=dd, g_min_db=float(gmin), noise_oracle=sc["noise"])
         return sc, r
 
-    sc, r = _ns(noise, snr, ramp, gain, tracker, dd, gmin, int(nseed))
-    with c2:
-        def _spec(P):
-            return 10 * np.log10(P[:, ::2] + 1e-10)
-        fo, to = r["f"], r["t"][::2]
-        _, _, Yc = en.stft(sc["clean"])
-        _, _, Ye = en.stft(r["out"])
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
-                            subplot_titles=("noisy input", "enhanced output", "gain G (white = pass)"))
-        vmax = _spec(r["P"]).max()
-        for i, Z in enumerate((_spec(r["P"]), _spec(np.abs(Ye) ** 2))):
-            fig.add_heatmap(x=to, y=fo, z=Z, zmin=vmax - 70, zmax=vmax, colorscale="Viridis", showscale=False,
-                            hoverinfo="skip", row=i + 1, col=1)
-        fig.add_heatmap(x=to, y=fo, z=20 * np.log10(r["G"][:, ::2]), zmin=gmin, zmax=0, colorscale="Greys_r",
-                        showscale=False, hoverinfo="skip", row=3, col=1)
-        for i in range(1, 4):
-            fig.update_yaxes(title="Hz", range=[0, 6000], row=i, col=1)
-        fig.update_xaxes(title="time (s)", row=3, col=1)
-        if ramp:
+    @st.cache_data(show_spinner="Enhancing your recording…")
+    def _ns_real(x_bytes, gain, tracker, dd, gmin):
+        x = np.frombuffer(x_bytes)
+        return {"noisy": x, "clean": None}, en.enhance(x, gain, tracker, dd_alpha=dd, g_min_db=float(gmin))
+
+    if synthetic:
+        sc, r = _ns(noise, snr, ramp, gain, tracker, dd, gmin, int(nseed))
+    elif rec is not None:
+        sc, r = _ns_real(rec.astype(float).tobytes(), gain, tracker, dd, gmin)
+    else:
+        sc = r = None
+        with c2:
+            st.info("Record a few seconds (quiet first, then speech with pauses) or upload a WAV. Your recording is "
+                    "processed here and not stored.")
+    if r is not None:
+        with c2:
+            def _spec(P):
+                return 10 * np.log10(P[:, ::2] + 1e-10)
+            fo, to = r["f"], r["t"][::2]
+            _, _, Ye = en.stft(r["out"])
+            fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+                                subplot_titles=("noisy input", "enhanced output", "gain G (white = pass)"))
+            vmax = _spec(r["P"]).max()
+            for i, Z in enumerate((_spec(r["P"]), _spec(np.abs(Ye) ** 2))):
+                fig.add_heatmap(x=to, y=fo, z=Z, zmin=vmax - 70, zmax=vmax, colorscale="Viridis", showscale=False,
+                                hoverinfo="skip", row=i + 1, col=1)
+            fig.add_heatmap(x=to, y=fo, z=20 * np.log10(r["G"][:, ::2]), zmin=gmin, zmax=0, colorscale="Greys_r",
+                            showscale=False, hoverinfo="skip", row=3, col=1)
             for i in range(1, 4):
-                fig.add_vline(x=5.0, line=dict(color="white", dash="dot"), row=i, col=1)
-        ui.show(ui.style(fig, None, height=620, legend=False))
-        res = {"input": sc["noisy"], "output": r["out"]}
-        tbl = pd.DataFrame({
-            "SNR (dB)": {k: en.snr_db(sc["clean"], v) for k, v in res.items()},
-            "segmental SNR (dB)": {k: en.segmental_snr_db(sc["clean"], v) for k, v in res.items()},
-            "noise reduction in pauses (dB)": {"input": 0.0,
-                                               "output": en.noise_attenuation_db(sc["noisy"], r["out"], sc["mask"])}})
-        st.dataframe(tbl.style.format("{:.1f}"), width="stretch")
-        a1, a2, a3 = st.columns(3)
-        norm = np.abs(sc["noisy"]).max() + 1e-9
-        a1.caption("Noisy")
-        a1.audio(np.clip(sc["noisy"] / norm, -1, 1), sample_rate=sp.FS)
-        a2.caption("Enhanced")
-        a2.audio(np.clip(r["out"] / norm, -1, 1), sample_rate=sp.FS)
-        a3.caption("Clean (hidden truth)")
-        a3.audio(np.clip(sc["clean"] / norm, -1, 1), sample_rate=sp.FS)
-        f2 = go.Figure()
-        k500 = int(np.argmin(np.abs(r["f"] - 500)))
-        f2.add_scatter(x=r["t"], y=10 * np.log10(r["P"][k500] + 1e-12), name="|Y|² at 500 Hz",
-                       line=dict(color=ui.C["truth"], width=1))
-        f2.add_scatter(x=r["t"], y=10 * np.log10(r["noise_psd"][k500]), name="noise estimate λ_N",
-                       line=dict(color=ui.C[1], width=2.5))
-        ui.show(ui.style(f2, "Noise tracking in one frequency bin", "time (s)", "dB", height=260))
+                fig.update_yaxes(title="Hz", range=[0, 6000], row=i, col=1)
+            fig.update_xaxes(title="time (s)", row=3, col=1)
+            if ramp:
+                for i in range(1, 4):
+                    fig.add_vline(x=5.0, line=dict(color="white", dash="dot"), row=i, col=1)
+            ui.show(ui.style(fig, None, height=620, legend=False))
+            if synthetic:
+                res = {"input": sc["noisy"], "output": r["out"]}
+                tbl = pd.DataFrame({
+                    "SNR (dB)": {k: en.snr_db(sc["clean"], v) for k, v in res.items()},
+                    "segmental SNR (dB)": {k: en.segmental_snr_db(sc["clean"], v) for k, v in res.items()},
+                    "noise reduction in pauses (dB)": {"input": 0.0,
+                                                       "output": en.noise_attenuation_db(sc["noisy"], r["out"], sc["mask"])}})
+                st.dataframe(tbl.style.format("{:.1f}"), width="stretch")
+            else:
+                bl = en.blind_levels(sc["noisy"], r["out"])
+                m1, m2 = st.columns(2)
+                m1.metric("Noise reduction in pauses", f"{bl['noise reduction in pauses (dB)']:.1f} dB",
+                          help="Quietest 20% of frames, which are almost surely pauses")
+                m2.metric("Level change on loud speech", f"{bl['level change on loud speech (dB)']:+.1f} dB",
+                          help="Loudest 20% of frames: close to 0 dB means speech is preserved")
+                st.caption("No clean reference exists for a real recording, so these two numbers stand in for SNR: "
+                           "lots of reduction in pauses with little change on loud speech is what you want.")
+            cols_a = st.columns(3 if synthetic else 2)
+            norm = np.abs(sc["noisy"]).max() + 1e-9
+            cols_a[0].caption("Noisy")
+            cols_a[0].audio(np.clip(sc["noisy"] / norm, -1, 1), sample_rate=sp.FS)
+            cols_a[1].caption("Enhanced")
+            cols_a[1].audio(np.clip(r["out"] / norm, -1, 1), sample_rate=sp.FS)
+            if synthetic:
+                cols_a[2].caption("Clean (hidden truth)")
+                cols_a[2].audio(np.clip(sc["clean"] / norm, -1, 1), sample_rate=sp.FS)
+            f2 = go.Figure()
+            k500 = int(np.argmin(np.abs(r["f"] - 500)))
+            f2.add_scatter(x=r["t"], y=10 * np.log10(r["P"][k500] + 1e-12), name="|Y|² at 500 Hz",
+                           line=dict(color=ui.C["truth"], width=1))
+            f2.add_scatter(x=r["t"], y=10 * np.log10(r["noise_psd"][k500]), name="noise estimate λ_N",
+                           line=dict(color=ui.C[1], width=2.5))
+            ui.show(ui.style(f2, "Noise tracking in one frequency bin", "time (s)", "dB", height=260))
     ui.takeaway("The MMSE gains act like a soft, per-bin Bayesian decision: strong bins pass, weak ones are pulled "
                 "down to the floor. The decision-directed prior makes the gain smooth in time. The noise tracker "
                 "matters as much as the gain rule: when the car speeds up, a frozen estimate under-suppresses "
