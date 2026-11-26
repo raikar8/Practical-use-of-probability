@@ -15,3 +15,6 @@ target_link_libraries(kalman_cli PRIVATE ssp)
 
 add_executable(viterbi_cli src/viterbi_cli.cpp)
 target_link_libraries(viterbi_cli PRIVATE ssp)
+
+add_executable(afc_cli src/afc_cli.cpp)
+target_link_libraries(afc_cli PRIVATE ssp)

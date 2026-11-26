@@ -191,4 +191,5 @@ signal, so the loop only sees $F-\hat F$. Half-way through, the user raises a ph
                 "alongside.")
     ui.in_practice("Every modern hearing aid runs an adaptive feedback canceller. The same structure (an adaptive "
                    "FIR on the loudspeaker signal) is the car's acoustic echo canceller from L2, here inside a "
-                   "closed loop.")
+                   "closed loop. A real-time C++ version of this exact loop is in `cpp/include/ssp/afc.hpp`: "
+                   "block-based, allocation-free, and tested to reproduce this page's simulation.")

@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(GXX is None, reason="no C++ compiler")
 def binaries(tmp_path_factory):
     out = tmp_path_factory.mktemp("cpp")
     bins = {}
-    for name in ("kalman_cli", "viterbi_cli"):
+    for name in ("kalman_cli", "viterbi_cli", "afc_cli"):
         exe = out / name
         subprocess.run([GXX, "-std=c++17", "-O2", f"-I{CPP / 'include'}", str(CPP / "src" / f"{name}.cpp"),
                         "-o", str(exe)], check=True)
@@ -50,3 +50,38 @@ def test_viterbi_matches_python(binaries):
     path_py, lp = hmm.viterbi(true.pi, true.A, logB)
     assert np.array_equal(path_cpp, path_py)
     assert float(out[-1].split()[1]) == pytest.approx(lp, rel=1e-9)
+
+
+def _run_afc(exe, cfg, method, block):
+    from ssp.sims import feedback as fb
+    sc = fb.scenario(cfg, method)
+    lines = [f"{sc['x'].size} {sc['change']} {sc['K']!r} {sc['mu']!r} {method} {block}"]
+    lines += [" ".join(repr(float(v)) for v in sc[k]) for k in ("x", "F1", "F2", "h0")]
+    out = subprocess.run([str(exe)], input="\n".join(lines), text=True, capture_output=True,
+                         check=True).stdout.strip().splitlines()
+    ue = np.array([[float(a) for a in line.split()] for line in out[:-1]])
+    w = np.array([float(a) for a in out[-1].split()[1:]])
+    return ue[:, 0], ue[:, 1], w
+
+
+@pytest.mark.parametrize("method", ["none", "fixed", "nlms"])
+def test_feedback_canceller_matches_python(binaries, method):
+    """Block-based C++ canceller in the closed loop == the sample-by-sample Python loop,
+    including the howling after the path change."""
+    from ssp.sims import feedback as fb
+    cfg = fb.HAConfig(duration=3.0)
+    u, e, w = _run_afc(binaries["afc_cli"], cfg, method, 32)
+    py = fb.simulate(cfg, method)
+    assert u == pytest.approx(py["out"], abs=1e-6)
+    assert e == pytest.approx(py["e"], abs=1e-6)
+    assert w == pytest.approx(py["h"], abs=1e-9)
+
+
+def test_feedback_canceller_is_block_size_invariant(binaries):
+    """Real-time code must give the same answer whatever buffer size the audio driver uses."""
+    from ssp.sims import feedback as fb
+    cfg = fb.HAConfig(duration=2.5)
+    ref = _run_afc(binaries["afc_cli"], cfg, "nlms", 1)
+    for block in (7, 32, 96):
+        u, e, w = _run_afc(binaries["afc_cli"], cfg, "nlms", block)
+        assert np.array_equal(u, ref[0]) and np.array_equal(e, ref[1]) and np.array_equal(w, ref[2])

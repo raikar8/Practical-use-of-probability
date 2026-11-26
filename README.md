@@ -54,22 +54,24 @@ ssp/core/               from-scratch algorithms
     imm.py              interacting multiple model filter
     changepoint.py      Bayesian online change-point detection (Normal–Inverse-Gamma)
 ssp/sims/               domain simulators (vehicle, netcode, speech, market, enhance, feedback, sports)
-cpp/                    header-only C++17 Kalman filter and Viterbi decoder + exercises (see cpp/README.md)
+cpp/                    header-only C++17 Kalman filter, Viterbi decoder, feedback canceller + exercises
 ssp/ui.py               shared plotting / layout helpers
 tests/                  correctness proofs + page smoke tests
 ```
 
 ## C++ ports
 
-`cpp/` holds allocation-free C++17 versions of the Kalman filter and the Viterbi decoder, a CMake build, a benchmark
-(about 200 ns per 4-state predict+update) and interview-style exercises on real-time constraints. `pytest` checks
-that they match the Python to 1e-9.
+`cpp/` holds allocation-free C++17 versions of the Kalman filter, the Viterbi decoder and the hearing-aid
+**adaptive feedback canceller** (block-based, real-time safe, about 0.1% of the per-sample budget at 16 kHz),
+with a CMake build, benchmarks and interview-style exercises on real-time constraints. `pytest` checks that they
+reproduce the Python, including the closed loop while it howls, and that the canceller's output doesn't depend
+on the audio block size.
 
 ## Where to go next
 
 * Replace the synthetic speech with your own recordings (the VAD page takes WAV uploads).
 * Particle-filter the netcode demo, or put an IMM into it ("running" vs "juking" models).
-* Port the NLMS feedback canceller to C++ as a block-based, allocation-free callback (exercise 4 in `cpp/README.md`).
+* Template the C++ canceller on `float`, and add a howling detector (exercise 4 follow-ups in `cpp/README.md`).
 
 Data is simulated by default, so every estimate can be compared with the hidden truth. The audio and market pages also accept your own WAV / CSV files. This is for learning only;
 nothing here is financial advice.

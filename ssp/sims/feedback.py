@@ -70,27 +70,39 @@ def source_signal(kind: str, n: int, rng: np.random.Generator) -> np.ndarray:
     return 0.003 * x / (np.std(x) + 1e-12)
 
 
-def simulate(cfg: HAConfig, method: str) -> dict:
-    """method: 'none' | 'fixed' | 'nlms'. Returns signals and diagnostics.
+def scenario(cfg: HAConfig, method: str) -> dict:
+    """Every input of one run (signal, paths, gain, delay, initial filter), so the
+    Python loop and the C++ port (cpp/include/ssp/afc.hpp) can be fed identically.
 
-    'fixed' and 'nlms' start from the feedback path measured at the
-    fitting session (the true initial path plus measurement error, about
-    -15 dB misalignment), which is what hearing aids actually do. 'fixed' never
-    adapts after that, so it fails when the path changes.
+    'fixed' and 'nlms' start from the feedback path measured at the fitting
+    session (the true initial path plus measurement error, about -15 dB
+    misalignment), which is what hearing aids actually do.
     """
     rng = np.random.default_rng(cfg.seed)
     n = int(cfg.duration * FS)
     x = source_signal(cfg.source, n, rng)
     F1 = feedback_path(cfg.taps, np.random.default_rng(cfg.seed + 7))
     F2 = F1 * 10 ** (cfg.path_change_db / 20)
-    change = n // 2
-    msg0 = msg_db(F1)
-    K = 10 ** ((msg0 + cfg.gain_margin_db) / 20)
-    D = int(cfg.delay_ms * FS / 1000)
     M = cfg.taps
     meas_err = np.random.default_rng(cfg.seed + 99).standard_normal(M)
     meas_err *= np.linalg.norm(F1) / np.linalg.norm(meas_err) * 10 ** (-15 / 20)
-    h = np.zeros(M) if method == "none" else F1 + meas_err
+    msg0 = msg_db(F1)
+    return {"x": x, "F1": F1, "F2": F2, "change": n // 2, "msg0": msg0,
+            "K": 10 ** ((msg0 + cfg.gain_margin_db) / 20), "D": int(cfg.delay_ms * FS / 1000), "M": M,
+            "h0": np.zeros(M) if method == "none" else F1 + meas_err, "mu": cfg.mu}
+
+
+def simulate(cfg: HAConfig, method: str) -> dict:
+    """method: 'none' | 'fixed' | 'nlms'. Returns signals and diagnostics.
+
+    'fixed' never adapts after the fitting measurement, so it fails when the
+    path changes. Sample-by-sample reference; the C++ port processes blocks.
+    """
+    sc = scenario(cfg, method)
+    x, F1, F2, change, K, D, M = (sc[k] for k in ("x", "F1", "F2", "change", "K", "D", "M"))
+    n = x.size
+    msg0 = sc["msg0"]
+    h = sc["h0"].copy()
     u = np.zeros(n + M)                 # receiver signal, offset by M for easy history slicing
     e = np.zeros(n)
     y = np.zeros(n)
