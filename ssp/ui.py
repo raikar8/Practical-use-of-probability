@@ -30,12 +30,14 @@ def rgba(hex_color: str, alpha: float) -> str:
 def style(fig: go.Figure, title: str | None = None, x: str | None = None, y: str | None = None,
           height: int = 380, legend: bool = True) -> go.Figure:
     """Consistent layout: title top-left, legend in its own band under the title, recessive grid."""
-    top = (40 if title else 10) + (48 if legend else 0)
+    named = sum(1 for tr in fig.data if tr.name and tr.showlegend is not False)
+    legend_h = 22 * max(1, -(-named // 4)) + 4 if legend else 0      # ~4 entries per legend row
+    top = (40 if title else 10) + legend_h
     bottom = max(10, fig.layout.margin.b or 0)     # keep room for animation controls
     fig.update_layout(
         title=dict(text=title, x=0, xanchor="left", y=1, yref="container", yanchor="top",
                    pad=dict(t=12), font=dict(size=15)) if title else None,
-        height=height + (48 if legend else 0), margin=dict(l=10, r=10, t=top, b=bottom),
+        height=height + legend_h, margin=dict(l=10, r=10, t=top, b=bottom),
         hovermode="x unified", showlegend=legend,
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
     )

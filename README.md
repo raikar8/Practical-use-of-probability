@@ -21,7 +21,7 @@ streamlit run streamlit_app.py
 
 Run the tests with `pytest`. This includes a smoke test that renders every page headlessly.
 
-## What's inside (Sprint 1)
+## What's inside
 
 | Page | Concepts | Try this |
 |---|---|---|
@@ -30,6 +30,9 @@ Run the tests with `pytest`. This includes a smoke test that renders every page 
 | **L2 · LMS, NLMS, RLS** | Echo-path identification with an abrupt change, coloured input, Wiener target | Make LMS diverge; coloured input vs. RLS |
 | **L3 · Kalman filter** | Predict/update, steady-state gain, 2D constant-velocity tracking, sensor blackout, RTS smoother, NEES/NIS consistency | Mis-tune Q and watch NEES leave the χ² band |
 | **Car GPS + IMU fusion** | 5-state EKF with gyro-bias estimation through a GPS-denied tunnel (animated) | Turn off bias estimation → overconfident filter |
+| **L4 · Hidden Markov models** | Forward (filtering), forward–backward (smoothing), Viterbi, Baum–Welch on the dishonest casino; HMM vs Kalman | Filtered vs smoothed vs Viterbi accuracy; EM restarts |
+| **Voice activity detection** | Unsupervised 2-state HMM on band energy + spectral flatness, duration prior, evidence scale; car / white / babble noise; WAV upload; listen to gated audio | κ = 1 makes the HMM flicker; babble breaks every detector |
+| **Market regimes & volatility** | Gaussian-HMM regimes (filtered vs smoothed = look-ahead bias), GARCH(1,1) by MLE with forecasts, Kalman hedge ratio with MLE-fitted noise; CSV upload | Trade on smoothed regimes = cheating; mis-set δ |
 | **Online game lag prediction** | Snap vs. extrapolation vs. interpolation vs. Kalman prediction under ping, jitter and loss (animated, 60 Hz) | Noisy snapshots break naive extrapolation |
 
 ## Layout
@@ -42,18 +45,18 @@ ssp/core/               from-scratch algorithms
     estimation.py       MLE, MAP, MMSE, CRLB, frequency MLE
     adaptive.py         Wiener, LMS, NLMS, RLS
     kalman.py           KF, EKF, RTS smoother, NEES/NIS, motion models
-ssp/sims/               domain simulators (vehicle, netcode)
+    hmm.py              forward, backward, posteriors, Viterbi, Baum–Welch
+    finance.py          GARCH(1,1) MLE, Kalman time-varying regression (+ MLE of its noise levels)
+ssp/sims/               domain simulators (vehicle, netcode, speech, market)
 ssp/ui.py               shared plotting / layout helpers
 tests/                  correctness proofs + page smoke tests
 ```
 
 ## Roadmap
 
-* **Sprint 2:** L4 HMMs (forward, Viterbi, forward–backward, Baum–Welch). Market-regime demo (HMM, Kalman hedge
-  ratio, GARCH-MLE). Speech demo: HMM voice-activity detection.
-* **Sprint 3:** L5 particle filter, IMM, Bayesian online change-point detection. Sports skill ratings and live
-  win probability. Audio MMSE noise suppression and hearing-aid feedback cancellation. C++ ports of the
-  Kalman filter and Viterbi.
+* **Sprint 3:** L5 particle filter, IMM, Bayesian online change-point detection. Speech enhancement (MMSE / Wiener
+  gain with decision-directed SNR) and hearing-aid feedback cancellation. Sports skill ratings and live win
+  probability. C++ ports of the Kalman filter and Viterbi.
 
-All data is simulated, so every estimate can be compared with the hidden truth. This is for learning only;
+Data is simulated by default, so every estimate can be compared with the hidden truth. The audio and market pages also accept your own WAV / CSV files. This is for learning only;
 nothing here is financial advice.

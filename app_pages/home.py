@@ -34,7 +34,7 @@ with c1:
 | **L1** Estimation | derive MLE / MAP / MMSE and know the best possible accuracy (CRLB) |
 | **L2** Adaptive filters | track a changing system with LMS, NLMS, RLS (echo cancellation) |
 | **L3** Kalman | fuse a model with noisy sensors, and test whether your filter is honest |
-| L4 HMM *(next)* | decode hidden regimes: Viterbi, forward–backward, Baum–Welch |
+| **L4** HMM | track, decode and learn hidden discrete states: forward, Viterbi, Baum–Welch |
 | L5 Advanced *(next)* | particle filters, IMM, change-point detection |
 """
     )
@@ -46,8 +46,9 @@ with c2:
 |---|---|---|
 | Car GPS + IMU through a tunnel | EKF with bias estimation | ready |
 | Online game: where is the player *now*? | Kalman prediction vs. netcode heuristics | ready |
-| Market regimes & hedge ratios | HMM, Kalman, GARCH-MLE | next |
-| Speech / hearing-aid audio | HMM VAD, MMSE noise suppression, adaptive feedback cancellation | next |
+| Voice activity detection in a car | unsupervised 2-state HMM, duration prior | ready |
+| Market regimes, volatility, hedge ratios | Gaussian HMM, GARCH by MLE, Kalman regression | ready |
+| Speech enhancement & hearing-aid feedback | MMSE noise suppression, Kalman/NLMS feedback cancellation | next |
 | Sports skill ratings & live win probability | sequential Bayes, Kalman ratings | later |
 """
     )
