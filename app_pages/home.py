@@ -35,7 +35,7 @@ with c1:
 | **L2** Adaptive filters | track a changing system with LMS, NLMS, RLS (echo cancellation) |
 | **L3** Kalman | fuse a model with noisy sensors, and test whether your filter is honest |
 | **L4** HMM | track, decode and learn hidden discrete states: forward, Viterbi, Baum–Welch |
-| L5 Advanced *(next)* | particle filters, IMM, change-point detection |
+| **L5** Advanced | particle filters, IMM, Bayesian online change-point detection |
 """
     )
 with c2:
@@ -48,8 +48,8 @@ with c2:
 | Online game: where is the player *now*? | Kalman prediction vs. netcode heuristics | ready |
 | Voice activity detection in a car | unsupervised 2-state HMM, duration prior | ready |
 | Market regimes, volatility, hedge ratios | Gaussian HMM, GARCH by MLE, Kalman regression | ready |
-| Speech enhancement & hearing-aid feedback | MMSE noise suppression, Kalman/NLMS feedback cancellation | next |
-| Sports skill ratings & live win probability | sequential Bayes, Kalman ratings | later |
+| Noise suppression & hearing-aid feedback | MMSE/Wiener gains, SPP noise tracking, adaptive feedback cancellation | ready |
+| Sports skill ratings & live win probability | Elo vs Kalman ratings, Poisson/Gamma live model | ready |
 """
     )
 
@@ -58,4 +58,6 @@ st.markdown(
     "**Intuition & math** → **Playground** (sliders, live plots) → **Break it** (mis-tune on purpose and "
     "watch it fail, which is how you learn what each knob does) → **Code** (the exact source)."
 )
-st.caption("All examples use simulated data so you can compare every estimate with the hidden truth.")
+st.caption("All examples use simulated data so you can compare every estimate with the hidden truth. The speech and "
+           "market pages also accept your own WAV / CSV files. C++ ports of the Kalman filter and Viterbi decoder "
+           "live in `cpp/`.")

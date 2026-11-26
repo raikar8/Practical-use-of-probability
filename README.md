@@ -31,8 +31,11 @@ Run the tests with `pytest`. This includes a smoke test that renders every page 
 | **L3 · Kalman filter** | Predict/update, steady-state gain, 2D constant-velocity tracking, sensor blackout, RTS smoother, NEES/NIS consistency | Mis-tune Q and watch NEES leave the χ² band |
 | **Car GPS + IMU fusion** | 5-state EKF with gyro-bias estimation through a GPS-denied tunnel (animated) | Turn off bias estimation → overconfident filter |
 | **L4 · Hidden Markov models** | Forward (filtering), forward–backward (smoothing), Viterbi, Baum–Welch on the dishonest casino; HMM vs Kalman | Filtered vs smoothed vs Viterbi accuracy; EM restarts |
+| **L5 · Particles, IMM, change points** | Bootstrap particle filter vs EKF vs exact grid posterior; road localisation from a barometer (animated); IMM on a manoeuvring target; Bayesian online change-point detection | Resampling off → weight collapse; IMM switching too eagerly |
 | **Voice activity detection** | Unsupervised 2-state HMM on band energy + spectral flatness, duration prior, evidence scale; car / white / babble noise; WAV upload; listen to gated audio | κ = 1 makes the HMM flicker; babble breaks every detector |
 | **Market regimes & volatility** | Gaussian-HMM regimes (filtered vs smoothed = look-ahead bias), GARCH(1,1) by MLE with forecasts, Kalman hedge ratio with MLE-fitted noise; CSV upload | Trade on smoothed regimes = cheating; mis-set δ |
+| **Noise suppression & hearing aids** | Spectral subtraction / Wiener / MMSE-STSA / MMSE-LSA gains, decision-directed SNR, SPP-MMSE noise tracking; hearing-aid feedback loop with fixed vs adaptive NLMS canceller, MSG over time | ML ξ → musical noise; μ vs closed-loop bias |
+| **Sports ratings & win probability** | Elo vs Kalman (Glicko-style) ratings with a strong newcomer; live football win/draw/loss from Poisson goals with Gamma-learned rates, red cards, calibration check | Kalman q too small; over-eager in-game learning |
 | **Online game lag prediction** | Snap vs. extrapolation vs. interpolation vs. Kalman prediction under ping, jitter and loss (animated, 60 Hz) | Noisy snapshots break naive extrapolation |
 
 ## Layout
@@ -47,16 +50,26 @@ ssp/core/               from-scratch algorithms
     kalman.py           KF, EKF, RTS smoother, NEES/NIS, motion models
     hmm.py              forward, backward, posteriors, Viterbi, Baum–Welch
     finance.py          GARCH(1,1) MLE, Kalman time-varying regression (+ MLE of its noise levels)
-ssp/sims/               domain simulators (vehicle, netcode, speech, market)
+    particle.py         SIR particle filter, resampling schemes, grid (exact) filter, benchmarks
+    imm.py              interacting multiple model filter
+    changepoint.py      Bayesian online change-point detection (Normal–Inverse-Gamma)
+ssp/sims/               domain simulators (vehicle, netcode, speech, market, enhance, feedback, sports)
+cpp/                    header-only C++17 Kalman filter and Viterbi decoder + exercises (see cpp/README.md)
 ssp/ui.py               shared plotting / layout helpers
 tests/                  correctness proofs + page smoke tests
 ```
 
-## Roadmap
+## C++ ports
 
-* **Sprint 3:** L5 particle filter, IMM, Bayesian online change-point detection. Speech enhancement (MMSE / Wiener
-  gain with decision-directed SNR) and hearing-aid feedback cancellation. Sports skill ratings and live win
-  probability. C++ ports of the Kalman filter and Viterbi.
+`cpp/` holds allocation-free C++17 versions of the Kalman filter and the Viterbi decoder, a CMake build, a benchmark
+(about 200 ns per 4-state predict+update) and interview-style exercises on real-time constraints. `pytest` checks
+that they match the Python to 1e-9.
+
+## Where to go next
+
+* Replace the synthetic speech with your own recordings (the VAD page takes WAV uploads).
+* Particle-filter the netcode demo, or put an IMM into it ("running" vs "juking" models).
+* Port the NLMS feedback canceller to C++ as a block-based, allocation-free callback (exercise 4 in `cpp/README.md`).
 
 Data is simulated by default, so every estimate can be compared with the hidden truth. The audio and market pages also accept your own WAV / CSV files. This is for learning only;
 nothing here is financial advice.
