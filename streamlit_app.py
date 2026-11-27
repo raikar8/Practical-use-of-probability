@@ -2,32 +2,33 @@
 
 Run from the repository root:
     streamlit run streamlit_app.py
+
+Every topic has two pages: **Theory** (read first) and **Lab** (interactive).
 """
 import streamlit as st
+
+from ssp.ui import TOPICS
 
 st.set_page_config(page_title="Practical Use of Probability", page_icon=":material/insights:",
                    layout="wide")
 
+ICONS = {"l0": ":material/casino:", "l1": ":material/target:", "l2": ":material/tune:",
+         "l3": ":material/timeline:", "l4": ":material/hub:", "l5": ":material/scatter_plot:",
+         "vehicle": ":material/directions_car:", "netcode": ":material/sports_esports:",
+         "speech": ":material/graphic_eq:", "enhance": ":material/hearing:",
+         "markets": ":material/candlestick_chart:", "sports": ":material/sports_soccer:"}
+
 pages = {
-    "Start": [
-        st.Page("app_pages/home.py", title="Overview", icon=":material/home:", default=True),
-    ],
-    "Learn: basics to advanced": [
-        st.Page("app_pages/l0_probability.py", title="L0 · Probability toolkit", icon=":material/casino:"),
-        st.Page("app_pages/l1_estimation.py", title="L1 · MLE, MAP, CRLB", icon=":material/target:"),
-        st.Page("app_pages/l2_adaptive.py", title="L2 · LMS, NLMS, RLS", icon=":material/tune:"),
-        st.Page("app_pages/l3_kalman.py", title="L3 · Kalman filter", icon=":material/timeline:"),
-        st.Page("app_pages/l4_hmm.py", title="L4 · Hidden Markov models", icon=":material/hub:"),
-        st.Page("app_pages/l5_advanced.py", title="L5 · Particles, IMM, change points", icon=":material/scatter_plot:"),
-    ],
-    "Use it: domain demos": [
-        st.Page("app_pages/d_vehicle.py", title="Car GPS + IMU fusion", icon=":material/directions_car:"),
-        st.Page("app_pages/d_netcode.py", title="Online game lag prediction", icon=":material/sports_esports:"),
-        st.Page("app_pages/d_speech.py", title="Voice activity detection", icon=":material/graphic_eq:"),
-        st.Page("app_pages/d_enhance.py", title="Noise suppression & hearing aids", icon=":material/hearing:"),
-        st.Page("app_pages/d_markets.py", title="Market regimes & volatility", icon=":material/candlestick_chart:"),
-        st.Page("app_pages/d_sports.py", title="Sports ratings & win probability", icon=":material/sports_soccer:"),
+    "Start here": [
+        st.Page("app_pages/home.py", title="Overview & how to use", icon=":material/home:", default=True),
+        st.Page("app_pages/glossary.py", title="Notation & glossary", icon=":material/menu_book:"),
     ],
 }
+for key, (level, title, theory, lab) in TOPICS.items():
+    section = f"{level} · {title}" if level != "Domain" else f"Demo · {title}"
+    pages[section] = [
+        st.Page(theory, title="Theory", icon=":material/menu_book:", url_path=f"{key}_theory"),
+        st.Page(lab, title="Lab", icon=ICONS[key], url_path=f"{key}_lab"),
+    ]
 
 st.navigation(pages).run()

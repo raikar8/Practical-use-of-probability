@@ -9,20 +9,19 @@ from ssp.core import changepoint as cp
 from ssp.core import imm, kalman
 from ssp.core import particle as pf
 
-ui.header("Level 5", "Beyond Gaussian: particle filters, IMM, change-point detection",
-          "What do we do when the belief has two peaks, the motion model keeps switching, or the rules of the "
-          "signal change without warning?")
-
-st.markdown(
-    """
-| Tool | Hidden state | Belief kept as | Use it when… |
-|---|---|---|---|
-| **Particle filter** | anything | N weighted samples | the posterior is multi-modal or the model is strongly nonlinear |
-| **IMM** | continuous state + which model is active | a mixture of Kalman filters | a target switches between behaviours (cruise / manoeuvre) |
-| **BOCPD** | time since the last change (run length) | a discrete distribution over run lengths | the data's statistics jump at unknown times |
-
-All three are the same predict → weigh by likelihood → normalise loop from L3 and L4, with a richer belief.
-"""
+ui.lab_intro(
+    "l5",
+    goal="See where a single Gaussian breaks, and what replaces it: a particle cloud that can hold two answers at "
+         "once, a bank of Kalman filters that switches between motion models, and a detector for sudden changes.",
+    on_screen=[
+        "**Particle filter vs EKF:** the exact posterior as a heat map, with the particle filter and the EKF on top "
+        "(Theory A)",
+        "**Where am I on this road?:** an animated particle cloud localising a car from altitude alone (Theory A)",
+        "**IMM:** two Kalman filters and their probability-weighted mix tracking a turning target (Theory B)",
+        "**Change-point detection:** the run-length posterior finding jumps in a sensor signal (Theory C)",
+    ],
+    start_here="In the first tab, find a time where the grey heat map shows **two** dark bands. The red EKF line "
+               "follows one of them; check whether it's the one with the yellow truth dots.",
 )
 
 t_pf, t_road, t_imm, t_cp, t_code = st.tabs(
@@ -33,22 +32,22 @@ t_pf, t_road, t_imm, t_cp, t_code = st.tabs(
 with t_pf:
     st.markdown(
         r"""
-**The classic nonlinear benchmark** (Gordon, Salmond & Smith 1993):
-
-$$x_t = \tfrac{x_{t-1}}{2} + \tfrac{25x_{t-1}}{1+x_{t-1}^2} + 8\cos(1.2t) + v_t,\qquad z_t = \tfrac{x_t^2}{20} + w_t.$$
-
-The measurement $x^2/20$ can't tell $+x$ from $-x$, so the true posterior often has **two peaks**. An EKF must
-pick one Gaussian. The particle filter can carry both. The heat map shows the *exact* posterior, computed on a
-fine grid (only possible in 1-D).
+**The situation.** The classic nonlinear test model (Theory A): the sensor measures $x^2/20$, so it can't tell
+$+x$ from $-x$ and the true belief often has **two peaks**. The grey heat map is the *exact* posterior from a
+fine grid (darker = more probable at that time step). The yellow dots are the truth, red is the EKF (one Gaussian),
+and blue is the particle filter's mean.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        N = st.select_slider("Particles", [50, 100, 250, 500, 1000, 2500, 5000], 1000)
-        scheme = st.selectbox("Resampling", ["systematic", "stratified", "multinomial", "none"])
+        N = st.select_slider("Particles", [50, 100, 250, 500, 1000, 2500, 5000], 1000,
+                             help="Number of samples representing the belief. More = closer to the exact posterior.")
+        scheme = st.selectbox("Resampling", ["systematic", "stratified", "multinomial", "none"],
+                              help="How to clone heavy particles and drop light ones when weights become uneven "
+                                   "(Theory A). 'none' shows what goes wrong without it.")
         ess_frac = st.slider("Resample when ESS below (fraction of N)", 0.1, 1.0, 0.5, 0.05,
                              disabled=scheme == "none")
-        seed = st.number_input("Random seed", 0, 9999, 0, key="pf_seed")
+        seed = st.number_input("Random seed", 0, 9999, 0, key="pf_seed", help="A different simulated run.")
 
     @st.cache_data(show_spinner="Filtering…")
     def _bench(N, scheme, ess_frac, seed):
@@ -93,30 +92,43 @@ fine grid (only possible in 1-D).
     ui.takeaway("Where the grey shows two bands, the EKF follows one and is often on the wrong side, with errors of "
                 "~20. The particle filter tracks the exact posterior mean closely and is limited only by what the "
                 "measurements can tell you.")
-    ui.break_it("Set resampling to 'none': after a few steps almost all weight sits on one particle (ESS ≈ 1) and "
-                "the filter is effectively a single, lost guess. Use 50 particles: Monte Carlo noise dominates. "
-                "Systematic vs multinomial: same mean, but multinomial adds extra randomness at every resample.")
+    ui.controls([
+        ("Particles", r"$N$", "samples in the cloud", "closer to the exact posterior; slower"),
+        ("Resampling", "–", "scheme for cloning/dropping particles", "'none' → weight collapse"),
+        ("Resample when ESS below", "threshold on eq. 2", "how degenerate weights may get", "resamples more often"),
+    ])
+    ui.experiments([
+        ("Defaults: compare the RMSE metrics.", "EKF ≈ 13.6, particle filter ≈ 4.8, exact posterior about the same.",
+         "Where the posterior has two peaks the EKF commits to one, often the wrong one. Particles keep both."),
+        ("Set Resampling = none.", "The ESS plot drops to 1 and stays there; the particle RMSE roughly doubles.",
+         "Without resampling, one particle ends up with all the weight: a single lost guess (degeneracy)."),
+        ("Set Particles = 50 and try a few seeds.", "Results vary much more between seeds; ESS often hits 1.",
+         "Too few samples to cover both peaks reliably; Monte Carlo noise dominates."),
+        ("Compare systematic and multinomial.", "Nearly the same RMSE.",
+         "Both are unbiased; multinomial just adds a little extra randomness at each resample."),
+    ])
 
 # --------------------------------------------------------------------------- road
 with t_road:
     st.markdown(
         r"""
-**Scenario:** a car starts with GPS unavailable (an underground car park, a cold start in a tunnel). It knows the
-road's **elevation map** and has a barometric altimeter and wheel odometry. Where on the 6 km road is it?
-
-* state $s_t$ = distance along the road; motion $s_t = s_{t-1} + (v^{\text{odo}}_t + \text{noise})\,\Delta t$
-* measurement $z_t = h(s_t) + w_t$, where $h$ is the elevation profile. Many places share the same altitude, so the
-  posterior starts out **spread over the whole road** and becomes multi-modal before it resolves.
-
-Particles start uniformly over the road, which is impossible for a Kalman filter to represent.
+**The situation.** A car starts with GPS unavailable (an underground car park, a cold start). It knows the road's
+**elevation map** (grey line) and has a barometric altimeter and wheel odometry. Particles (blue) start spread
+**uniformly over the whole 6 km road**, which a Kalman filter can't represent. Each step they move with the
+odometer and are weighted by how well the map altitude at their position matches the barometer (Theory A).
+Press ▶ and watch the cloud collapse onto the orange car.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        Nr = st.select_slider("Particles", [300, 1000, 2000, 5000], 2000, key="road_N")
-        baro = st.slider("Barometer noise σ (m)", 0.2, 5.0, 1.5, 0.1)
-        odo = st.slider("Odometer noise σ (m/s)", 0.05, 2.0, 0.3, 0.05)
-        start = st.slider("True start position (m)", 0, 4500, 1200, 100)
+        Nr = st.select_slider("Particles", [300, 1000, 2000, 5000], 2000, key="road_N",
+                              help="Particles covering 6 km of road. Too few and the right spot may get no particle.")
+        baro = st.slider("Barometer noise σ (m)", 0.2, 5.0, 1.5, 0.1,
+                         help="Altitude measurement noise. Larger = each reading eliminates fewer candidate places.")
+        odo = st.slider("Odometer noise σ (m/s)", 0.05, 2.0, 0.3, 0.05,
+                        help="Wheel-speed error. Larger = particles spread out more between readings.")
+        start = st.slider("True start position (m)", 0, 4500, 1200, 100,
+                          help="Where the car really starts (hidden from the filter).")
         rseed = st.number_input("Random seed", 0, 9999, 2, key="road_seed")
 
     @st.cache_data(show_spinner="Localising…")
@@ -168,8 +180,21 @@ Particles start uniformly over the road, which is impossible for a Kalman filter
     ui.takeaway("Early on the mean is meaningless: it sits *between* the candidate hills, where the car certainly is "
                 "not. With a multi-modal belief, report the modes (or the whole cloud), not the mean. Each "
                 "distinctive climb or dip eliminates the wrong candidates.")
-    ui.break_it("Barometer σ = 5 m on rolling terrain: several stretches stay plausible for a long time. Start the "
-                "car on the flattest part of the road: nothing happens until the first real hill.")
+    ui.controls([
+        ("Particles", r"$N$", "samples along the road", "more reliable, slower"),
+        ("Barometer noise σ", r"$\sigma$ in $p(z\mid s)$", "altitude sensor noise", "takes longer to rule places out"),
+        ("Odometer noise σ", "motion noise", "speed error", "the cloud spreads more between readings"),
+        ("True start position", r"$s_0$", "hidden starting point", "different terrain, different difficulty"),
+    ])
+    ui.experiments([
+        ("Press ▶ with the defaults.", "Several clusters survive for the first seconds; by ~10 s one remains.",
+         "Each altitude reading rules out places whose map altitude doesn't match. Distinctive climbs decide it."),
+        ("In the bottom plot, compare the error and the spread early on.",
+         "While several clusters survive, the mean's error is huge, and so is the spread.",
+         "The mean of a two-peaked belief lies between the peaks, where the car certainly isn't."),
+        ("Set Barometer noise σ = 5 m.", "Convergence takes about twice as long (~20 s).",
+         "Noisier readings carry less information, so more terrain must pass before one place wins."),
+    ])
     ui.in_practice("Map-matching and terrain-aided navigation, robot localisation in a known map (Monte Carlo "
                    "localisation), indoor positioning from Wi-Fi/magnetic fingerprints, and visual tracking in "
                    "clutter all use particle filters.")
@@ -178,20 +203,24 @@ Particles start uniformly over the road, which is impossible for a Kalman filter
 with t_imm:
     st.markdown(
         r"""
-A target cruises straight, turns hard, cruises, turns the other way. Two constant-velocity Kalman filters
-differ only in process noise $q$: **"cruise"** (small $q$) and **"manoeuvre"** (large $q$). The IMM runs both and
-keeps $P(\text{model}\mid\text{data})$, with switches governed by a Markov chain (the HMM of L4). Its output is
-the probability-weighted mixture.
+**The situation.** A radar tracks a target that cruises straight, turns hard, cruises, then turns the other way.
+Two Kalman filters differ only in process noise $q$: **cruise** (small $q$) and **manoeuvre** (large $q$). The
+**IMM** runs both and keeps a probability for each, updated from how well each one predicts the radar plots
+(Theory B). The top plot is one run; the bottom plots average many runs.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        rate = st.slider("Turn rate (deg/s)", 2, 20, 9)
-        sig = st.slider("Radar position noise σ (m)", 5, 60, 20)
-        ql = st.select_slider("Cruise model q", [0.01, 0.1, 1.0, 5.0], 0.1)
-        qh = st.select_slider("Manoeuvre model q", [20.0, 50.0, 100.0, 200.0, 500.0], 200.0)
-        pstay = st.select_slider("P(stay in the same model) per step", [0.8, 0.9, 0.95, 0.98, 0.99], 0.95)
-        runs = st.select_slider("Monte Carlo runs", [5, 20, 50], 20)
+        rate = st.slider("Turn rate (deg/s)", 2, 20, 9,
+                         help="How hard the target turns (the second turn is 1.3× harder). At 100 m/s, 9°/s ≈ 1.6 g.")
+        sig = st.slider("Radar position noise σ (m)", 5, 60, 20, help="Measurement noise of each radar plot.")
+        ql = st.select_slider("Cruise model q", [0.01, 0.1, 1.0, 5.0], 0.1,
+                              help="Process noise of the 'cruise' filter: expects nearly straight flight.")
+        qh = st.select_slider("Manoeuvre model q", [20.0, 50.0, 100.0, 200.0, 500.0], 200.0,
+                              help="Process noise of the 'manoeuvre' filter: expects hard accelerations.")
+        pstay = st.select_slider("P(stay in the same model) per step", [0.8, 0.9, 0.95, 0.98, 0.99], 0.95,
+                                 help="IMM's switching prior. 0.95 = expect a mode change about every 20 scans.")
+        runs = st.select_slider("Monte Carlo runs", [5, 20, 50], 20, help="Runs averaged in the RMSE plot and table.")
 
     @st.cache_data(show_spinner="Tracking…")
     def _imm(rate, sig, ql, qh, pstay, runs):
@@ -249,8 +278,24 @@ the probability-weighted mixture.
     ui.takeaway("The cruise filter is excellent until the first turn, then lags badly. The manoeuvre filter never "
                 "loses the target but stays noisy. The IMM switches its belief to 'manoeuvre' within a few scans of "
                 "each turn and back afterwards, so it is close to the better filter in every phase.")
-    ui.break_it("P(stay) = 0.8: the IMM switches too eagerly and inherits the manoeuvre filter's noise. Cruise q = "
-                "0.01 with a 20°/s turn: the cruise filter diverges, and the IMM still holds on.")
+    ui.controls([
+        ("Turn rate", "–", "true manoeuvre severity", "the cruise filter falls further behind"),
+        ("Radar noise σ", r"$\sqrt R$", "measurement noise", "everything noisier; mode decisions slower"),
+        ("Cruise / Manoeuvre q", r"$q$ of each model", "what each filter expects", "more agile but noisier filter"),
+        ("P(stay)", r"diagonal of $\Pi$", "switching prior", "fewer, more confident mode switches"),
+    ])
+    ui.experiments([
+        ("Defaults: read the table.",
+         "Straight segments: IMM ≈ 19 m vs manoeuvre filter ≈ 23 m. Turns: about equal (≈ 27 m). Cruise: hundreds.",
+         "IMM uses the precise model on straights and the agile one in turns."),
+        ("Watch the dotted P(manoeuvre) line against the shaded turning periods.",
+         "It rises within a few scans of each turn and falls afterwards.",
+         "The cruise filter's innovations become too large for its small S, so its likelihood collapses."),
+        ("Set P(stay) = 0.8.", "The IMM's straight-segment error rises toward the manoeuvre filter's (≈ 21 m).",
+         "A weak switching prior lets noise flip the mode, mixing in the noisy filter."),
+        ("Set the turn rate to 20°/s.", "The cruise filter diverges completely; the IMM still holds on.",
+         "The manoeuvre model covers the turn, and the IMM gives it the weight."),
+    ])
     ui.in_practice("IMM is the workhorse of air-traffic control and automotive radar tracking (adaptive cruise, "
                    "collision avoidance). The same idea, mode probabilities over a bank of filters, is used in "
                    "fault-tolerant navigation.")
@@ -259,27 +304,30 @@ the probability-weighted mixture.
 with t_cp:
     st.markdown(
         r"""
-**Bayesian online change-point detection** tracks the hidden **run length** $r_t$ (samples since the last change).
-Each step the run either grows ($r\to r+1$, probability $1-H$) or resets ($r\to0$, hazard $H=1/\lambda$). For
-each run length it keeps a Normal–Inverse-Gamma posterior of the segment's mean and variance, so a jump in
-**level or volatility** makes long runs unlikely. It's an HMM forward pass where the state is "how long has this
-lasted?"
+**The situation.** A sensor signal sits at one level, then jumps (in level, noise, or both). BOCPD tracks the
+hidden **run length**: how many samples since the last change (Theory C). In the top plot, yellow dashed lines are
+the true changes and orange solid lines are detections. In the bottom heat map, darker = more probable run
+length; each diagonal ridge is one segment growing, and a new ridge starting at zero is a change.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        src = st.radio("Signal", ["Machine sensor: level & noise shifts", "Daily returns from the market simulator"])
+        src = st.radio("Signal", ["Machine sensor: level & noise shifts", "Daily returns from the market simulator"],
+                       help="A synthetic sensor with level/noise jumps, or market returns whose volatility switches.")
         if src.startswith("Machine"):
-            nchg = st.slider("Number of changes", 0, 8, 4)
-            jump = st.slider("Typical level jump (× noise σ)", 0.5, 5.0, 2.0, 0.25)
-            vr = st.slider("Noise-level change ratio", 1.0, 3.0, 1.5, 0.1)
+            nchg = st.slider("Number of changes", 0, 8, 4, help="How many jumps the true signal has.")
+            jump = st.slider("Typical level jump (× noise σ)", 0.5, 5.0, 2.0, 0.25,
+                             help="Size of level shifts relative to the noise. Below ~1 they're hard to see.")
+            vr = st.slider("Noise-level change ratio", 1.0, 3.0, 1.5, 0.1,
+                           help="How much the noise level can change at a jump (1 = never).")
             T = 600
         else:
-            T = st.slider("Days", 300, 1500, 800, 100)
-        lam = st.select_slider("Expected run length λ (prior)", [25, 50, 100, 250, 1000], 100)
+            T = st.slider("Days", 300, 1500, 800, 100, help="Length of the simulated return series.")
+        lam = st.select_slider("Expected run length λ (prior)", [25, 50, 100, 250, 1000], 100,
+                               help="Prior belief about segment length; hazard H = 1/λ per sample.")
         confirm = st.slider("Confirmation delay (samples)", 0, 20, 5,
                             help="Wait this long before declaring a change. Fewer false alarms, slower alarms.")
-        cseed = st.number_input("Random seed", 0, 9999, 3, key="cp_seed")
+        cseed = st.number_input("Random seed", 0, 9999, 3, key="cp_seed", help="A different random signal.")
     if src.startswith("Machine"):
         x, true_cps, levels, _ = cp.piecewise_signal(T, nchg, jump, vr, np.random.default_rng(int(cseed)))
         b = cp.bocpd(x, lam, 0.0, 0.1, 1.0, 1.0)
@@ -324,11 +372,27 @@ lasted?"
     ui.takeaway("The posterior's diagonal ridges are runs growing one sample at a time. A change shows up as a new "
                 "ridge starting at zero. The detector is fully probabilistic, so the trade-off between false alarms "
                 "and delay is explicit: the confirmation delay and the hazard λ.")
-    ui.break_it("Confirmation delay 0: single outliers trigger false alarms. λ = 1000: you tell the model changes "
-                "are rare, so small shifts go unreported. On market returns, only volatility changes, and BOCPD still "
-                "catches most switches because the Student-t predictive notices the variance.")
+    ui.controls([
+        ("Number of changes, level jump, noise ratio", "–", "the true signal", "bigger jumps are easier to detect"),
+        ("Expected run length λ", r"$1/H$ in eq. 4–5", "prior on how often changes happen", "fewer false alarms, slower"),
+        ("Confirmation delay", "–", "samples to wait before declaring", "fewer false alarms, longer delay"),
+    ])
+    ui.experiments([
+        ("Defaults: read the three metrics.", "4/4 changes found, 0 false alarms, about 9 samples of delay.",
+         "Clear jumps (2σ) are easy; the delay is mostly the 5-sample confirmation."),
+        ("Set the confirmation delay to 0, then 20.",
+         "0: delay ≈ 4 samples but a false alarm appears. 20: no false alarms, delay ≈ 24.",
+         "Every detector trades false alarms against delay. The confirmation delay makes that trade explicit."),
+        ("Set the typical level jump to 0.75.", "Only about half the changes are found.",
+         "Shifts smaller than the noise need many samples to become convincing."),
+        ("With the jump at 0.75, set λ = 25.", "More false alarms appear.",
+         "Telling the model that changes are frequent makes it quicker to believe noise is a change."),
+        ("Switch the signal to market returns.", "Most switches are found even though the mean barely changes.",
+         "The Student-t predictive notices changes in *variance*, not just in level."),
+    ])
     ui.in_practice("Predictive maintenance (vibration and temperature shifts), network and fraud monitoring, "
                    "detecting regime breaks in finance, and segmenting audio or sensor streams.")
 
 with t_code:
+    st.markdown("The exact functions this page runs (from `ssp/core/particle.py`, `imm.py`, `changepoint.py`):")
     ui.source(pf.systematic_resample, pf.bootstrap_pf, pf.grid_filter, imm.imm_filter, cp.bocpd)

@@ -6,12 +6,24 @@ from scipy import stats
 from ssp import ui
 from ssp.core import estimation as est
 
-ui.header("Level 1", "Estimation: MLE, MAP, MMSE and the CRLB",
-          "Given noisy samples, what single number should we report, and how accurate can it possibly be?")
+ui.lab_intro(
+    "l1",
+    goal="Watch estimators at work on simulated sensor data: where the MLE and MAP land, how a prior pulls the "
+         "answer, and how close any estimator can get to the truth (the CRLB).",
+    on_screen=[
+        "**Likelihood → MLE & MAP:** the three curves of Bayes' rule for a constant level in noise (Theory §2–3)",
+        "**MLE vs MAP vs MMSE:** three different 'best guesses' from one skewed posterior (Theory §4)",
+        "**Best possible accuracy:** thousands of repeated experiments compared with the CRLB (Theory §5)",
+        "**Frequency & the threshold effect:** estimating a tone's pitch, and where that breaks down (Theory §6)",
+        "**Outliers:** what happens when the noise isn't Gaussian (Theory §7)",
+    ],
+    start_here="In the first tab, drag *Samples N* from 1 to 200 and watch the blue likelihood narrow and the "
+               "orange MAP marker slide from the prior toward the MLE.",
+)
 
 t_like, t_three, t_crlb, t_freq, t_out, t_code = st.tabs(
     ["Likelihood → MLE & MAP", "MLE vs MAP vs MMSE", "Best possible accuracy (CRLB)",
-     "Frequency & the threshold effect", "Break it: outliers", "Code"])
+     "Frequency & the threshold effect", "Outliers & robustness", "Code"])
 
 
 @st.cache_data(show_spinner=False)
@@ -34,26 +46,25 @@ def _mc_out(N, ps, scale, trials, seed):
 with t_like:
     st.markdown(
         r"""
-**Model:** a sensor reads a constant level $A$ (a DC offset, a battery voltage, a room's noise floor) in
-white Gaussian noise: $x[n] = A + w[n]$, $w[n]\sim\mathcal N(0,\sigma^2)$.
+**The situation.** A sensor measures a constant level $A$ (a DC offset, a battery voltage) $N$ times, each with
+Gaussian noise of size $\sigma$: $x[n] = A + w[n]$. We plot three curves over every *candidate* value of $A$:
 
-* **MLE** picks the $A$ that makes the data most probable: $\hat A_{\text{ML}} = \arg\max_A \log p(\mathbf x\mid A)
-  = \bar x$.
-* **MAP** also weighs a prior $A\sim\mathcal N(\mu_0,\sigma_0^2)$: $\hat A_{\text{MAP}}=\arg\max_A
-  [\log p(\mathbf x\mid A)+\log p(A)]$, a precision-weighted blend of $\mu_0$ and $\bar x$.
-
-The **curvature** of the log-likelihood at its peak is the *Fisher information*: a sharper peak means a
-more precise estimate.
+* **likelihood** (blue): how well each candidate explains the samples. Its peak is the **MLE** = the sample mean.
+* **prior** (dashed): what we believed before measuring, $\mathcal N(\mu_0, \sigma_0^2)$.
+* **posterior** (orange) = likelihood × prior. Its peak is the **MAP** estimate.
 """
     )
     c1, c2 = st.columns([1, 2])
     with c1:
-        A_true = st.slider("True A (hidden)", -3.0, 3.0, 1.0, 0.1)
-        sigma = st.slider("Noise σ", 0.1, 5.0, 2.0, 0.1)
-        N = st.slider("Samples N", 1, 200, 5)
-        mu0 = st.slider("Prior mean μ₀", -3.0, 3.0, 0.0, 0.1)
-        s0 = st.slider("Prior σ₀ (smaller = more confident)", 0.1, 5.0, 0.5, 0.1)
-        seed = st.number_input("Random seed", 0, 9999, 0, key="l_seed")
+        A_true = st.slider("True A (hidden)", -3.0, 3.0, 1.0, 0.1,
+                           help="The real level used to simulate the readings. Estimators never see it.")
+        sigma = st.slider("Noise σ", 0.1, 5.0, 2.0, 0.1, help="Standard deviation of each reading's noise.")
+        N = st.slider("Samples N", 1, 200, 5, help="Number of readings averaged.")
+        mu0 = st.slider("Prior mean μ₀", -3.0, 3.0, 0.0, 0.1, help="Your best guess before measuring.")
+        s0 = st.slider("Prior σ₀ (smaller = more confident)", 0.1, 5.0, 0.5, 0.1,
+                       help="How sure you are of μ₀. Small σ₀ = a strong prior that needs lots of data to move.")
+        seed = st.number_input("Random seed", 0, 9999, 0, key="l_seed",
+                               help="Draws a different set of noisy readings.")
     x = A_true + sigma * np.random.default_rng(int(seed)).standard_normal(N)
     grid = np.linspace(-5, 5, 600)
     ll = est.dc_log_likelihood(grid, x, sigma)
@@ -73,11 +84,30 @@ more precise estimate.
                         marker=dict(size=11, color=ui.C[1], symbol="diamond"))
         fig.add_scatter(x=[mapv], y=[1.0], mode="markers", name=f"MAP = {mapv:.2f}",
                         marker=dict(size=11, color=ui.C[2], symbol="diamond"))
-        ui.show(ui.style(fig, "Each curve scaled to peak at 1", "candidate A", "relative density"))
+        ui.show(ui.style(fig, "Each curve scaled to peak at 1", "candidate value of A", "relative density"))
         m1, m2, m3 = st.columns(3)
         m1.metric("MLE error", f"{mle - A_true:+.2f}")
         m2.metric("MAP error", f"{mapv - A_true:+.2f}")
-        m3.metric("Weight on the data", f"{(N / sigma**2) / (N / sigma**2 + 1 / s0**2):.0%}")
+        m3.metric("Weight on the data", f"{(N / sigma**2) / (N / sigma**2 + 1 / s0**2):.0%}",
+                  help="(N/σ²) / (N/σ² + 1/σ₀²): Theory eq. 6. The rest of the weight goes to the prior.")
+    ui.controls([
+        ("True A", r"$A$", "the hidden level", "all readings shift"),
+        ("Noise σ", r"$\sigma$", "reading noise", "a wider likelihood, so the prior matters more"),
+        ("Samples N", r"$N$", "number of readings", r"the likelihood narrows like $\sigma/\sqrt N$"),
+        ("Prior mean μ₀", r"$\mu_0$", "where the prior is centred", "MAP is pulled toward it"),
+        ("Prior σ₀", r"$\sigma_0$", "prior uncertainty", "a weaker prior, so MAP → MLE"),
+    ])
+    ui.experiments([
+        ("Keep the defaults (N = 5, σ = 2, σ₀ = 0.5).",
+         "The orange MAP sits much closer to the prior (0) than to the MLE. *Weight on the data* is only ~24%.",
+         "Five very noisy readings carry less information than a confident prior."),
+        ("Drag N to 200.", "The blue curve becomes a spike; MAP and MLE meet; the weight on the data is ~93%.",
+         "Data precision N/σ² grows with N while the prior's stays fixed. Data eventually wins."),
+        ("Back to N = 5; set σ₀ = 5.", "The prior curve is almost flat and MAP ≈ MLE.",
+         "A vague prior adds almost no information. MAP with a flat prior *is* the MLE."),
+        ("Change the random seed a few times at N = 5.", "The MLE jumps around; MAP jumps less.",
+         "The prior reduces variance, at the cost of a pull (bias) toward μ₀. This trade-off is the whole of Level 1."),
+    ])
     ui.takeaway("The posterior is the product of likelihood and prior. With few or very noisy samples, MAP leans "
                 "on the prior. As N grows the likelihood narrows like σ/√N and MAP converges to the MLE.")
 
@@ -85,24 +115,19 @@ more precise estimate.
 with t_three:
     st.markdown(
         r"""
-With a Gaussian posterior, MAP (the peak) and MMSE (the mean) coincide. With a **skewed** posterior they
-differ. Example: estimating a click-through rate $\theta$ from $k$ clicks in $n$ impressions, with a
-$\text{Beta}(\alpha,\beta)$ prior:
-
-| Estimator | Formula | Minimises |
-|---|---|---|
-| MLE | $k/n$ | ignores the prior |
-| MAP (posterior mode) | $\frac{k+\alpha-1}{n+\alpha+\beta-2}$ | 0–1 loss (most probable value) |
-| MMSE (posterior mean) | $\frac{k+\alpha}{n+\alpha+\beta}$ | expected squared error |
+**The situation.** An ad was shown $n$ times and clicked $k$ times. What is its click-through rate $\theta$? The
+prior Beta($\alpha$, $\beta$) encodes past campaigns. The posterior is Beta($\alpha+k$, $\beta+n-k$), which is
+**skewed**, so its peak (MAP) and its mean (MMSE) are different numbers, and the MLE $k/n$ ignores the prior.
+The formulas are in Theory eq. 7.
 """
     )
     c1, c2 = st.columns([1, 2])
     with c1:
-        n = st.slider("Impressions n", 1, 100, 5)
-        k = st.slider("Clicks k", 0, 100, 1)
+        n = st.slider("Impressions n", 1, 100, 5, help="Times the ad was shown.")
+        k = st.slider("Clicks k", 0, 100, 1, help="Times it was clicked (capped at n).")
         k = min(k, n)
-        a = st.slider("Prior α", 1.0, 20.0, 2.0, 0.5, key="bb_a")
-        b = st.slider("Prior β", 1.0, 100.0, 30.0, 0.5, key="bb_b")
+        a = st.slider("Prior α", 1.0, 20.0, 2.0, 0.5, key="bb_a", help="Pseudo-clicks from past campaigns.")
+        b = st.slider("Prior β", 1.0, 100.0, 30.0, 0.5, key="bb_b", help="Pseudo-non-clicks. Prior mean = α/(α+β).")
     r = est.bernoulli_estimators(k, n, a, b)
     g = np.linspace(0.0005, 0.9995, 1000)
     pdf = stats.beta(r["post_alpha"], r["post_beta"]).pdf(g)
@@ -118,6 +143,18 @@ $\text{Beta}(\alpha,\beta)$ prior:
         fig.update_xaxes(range=[0, min(1, max(0.3, (r["MLE"] if np.isfinite(r["MLE"]) else 0) * 1.4))])
         ui.show(ui.style(fig, f"Posterior Beta({r['post_alpha']:.1f}, {r['post_beta']:.1f}) after {k}/{n} clicks",
                          "click-through rate θ", "density"))
+    ui.controls([
+        ("Impressions n, Clicks k", r"$n, k$", "the data", "the posterior narrows; all three estimates converge"),
+        ("Prior α, β", r"$\alpha, \beta$", "past experience as pseudo-counts", "the prior's pull grows"),
+    ])
+    ui.experiments([
+        ("Defaults: 1 click in 5 impressions.", "MLE = 20%; MAP ≈ 5.7%; MMSE ≈ 8.1%.",
+         "Five impressions say almost nothing; the prior (≈6%) dominates the Bayesian estimates."),
+        ("Set n = 100, k = 20.", "All three estimates crowd near 15–20%.",
+         "With plenty of data, the choice of estimator (and prior) matters less and less."),
+        ("Set k = 0, n = 5.", "MLE = 0% (never clicked, so 'never will'); MMSE stays positive.",
+         "MLE overreacts to small samples; Bayesian estimates never claim impossibility from 5 trials."),
+    ])
     ui.takeaway("With 1 click in 5 impressions, the MLE says 20%. A prior built from past campaigns (≈6%) pulls "
                 "MAP and MMSE toward something believable. Ad platforms and recommenders shrink small-sample "
                 "rates toward a prior like this so they don't overreact to new items.")
@@ -126,20 +163,24 @@ $\text{Beta}(\alpha,\beta)$ prior:
 with t_crlb:
     st.markdown(
         r"""
-The **Cramér–Rao lower bound** says no *unbiased* estimator can beat $\operatorname{var}(\hat A)\ge
-1/I(A)$, where $I$ is the Fisher information. For the DC level, $\text{CRLB}=\sigma^2/N$. The sample mean
-reaches it, so it is **efficient**. A Monte Carlo run shows this, and shows what a prior does.
+**The situation.** Repeat the constant-level experiment thousands of times for each N, and measure each
+estimator's **mean squared error** (MSE). The dashed line is the **Cramér–Rao lower bound** $\sigma^2/N$: no
+*unbiased* estimator can go below it (Theory §5). Both axes are logarithmic, so a straight line means a power law.
 """
     )
     c1, c2 = st.columns([1, 2])
     with c1:
-        sig = st.slider("Noise σ", 0.2, 5.0, 1.0, 0.1, key="c_sig")
-        pm = st.slider("Prior mean μ₀", -3.0, 3.0, 0.0, 0.1, key="c_mu")
-        ps = st.slider("Prior σ₀", 0.05, 3.0, 0.3, 0.05, key="c_s0")
+        sig = st.slider("Noise σ", 0.2, 5.0, 1.0, 0.1, key="c_sig", help="Noise standard deviation per reading.")
+        pm = st.slider("Prior mean μ₀", -3.0, 3.0, 0.0, 0.1, key="c_mu", help="Prior used by MAP.")
+        ps = st.slider("Prior σ₀", 0.05, 3.0, 0.3, 0.05, key="c_s0", help="Prior uncertainty used by MAP.")
         mode = st.radio("Where does the true A come from?",
-                        ["Drawn from the prior (prior is right)", "Fixed value (prior may be wrong)"])
-        At = st.slider("Fixed true A", -3.0, 3.0, 1.0, 0.1, disabled=mode.startswith("Drawn"))
-        trials = st.select_slider("Monte Carlo trials", [500, 2000, 5000, 20000], 5000)
+                        ["Drawn from the prior (prior is right)", "Fixed value (prior may be wrong)"],
+                        help="'Drawn': each repeat picks a new true A from the prior, so the prior is correct on "
+                             "average. 'Fixed': the true A is the value below, which may disagree with the prior.")
+        At = st.slider("Fixed true A", -3.0, 3.0, 1.0, 0.1, disabled=mode.startswith("Drawn"),
+                       help="Only used in 'Fixed' mode.")
+        trials = st.select_slider("Monte Carlo trials", [500, 2000, 5000, 20000], 5000,
+                                  help="Repeats per N. More = smoother curves, slower.")
     Ns = tuple(int(v) for v in np.unique(np.logspace(0, 3, 16).astype(int)))
     r = _mc_dc(Ns, sig, At, pm, ps, trials, mode.startswith("Drawn"), 11)
     with c2:
@@ -151,31 +192,46 @@ reaches it, so it is **efficient**. A Monte Carlo run shows this, and shows what
         fig.update_xaxes(type="log")
         fig.update_yaxes(type="log")
         ui.show(ui.style(fig, "Mean squared error vs number of samples", "N (samples)", "MSE"))
+    ui.controls([
+        ("Noise σ", r"$\sigma$", "reading noise", "everything shifts up by σ²"),
+        ("Prior μ₀, σ₀", r"$\mu_0, \sigma_0$", "MAP's prior", "MAP's behaviour at small N changes"),
+        ("Where does A come from", "–", "is the prior right or not", "decides whether MAP beats the bound"),
+        ("Monte Carlo trials", "–", "repeats per point", "less jagged curves"),
+    ])
+    ui.experiments([
+        ("Defaults ('Drawn from the prior').", "Blue sits on the dashed line; orange is *below* it at small N.",
+         "The MLE is efficient (it meets the CRLB). MAP is biased toward a correct prior, so the unbiased-only bound "
+         "doesn't apply to it."),
+        ("Switch to 'Fixed value', true A = 2.5, μ₀ = 0, σ₀ = 0.1.",
+         "Orange stays far above the bound until N reaches several hundred.",
+         "A confident wrong prior is a systematic error that only lots of data can wash out."),
+        ("Increase σ from 1 to 4.", "The blue and dashed lines move up 16× (σ² = 16); MAP's advantage now lasts "
+         "to much larger N.",
+         "CRLB = σ²/N. Noisier data makes the same prior relatively more valuable, for longer."),
+    ])
     ui.takeaway("The MLE sits on the CRLB line: it can't be beaten without extra information. MAP *does* go below "
-                "the CRLB when the prior is right, because it is biased and the CRLB only covers unbiased estimators. "
-                "With a wrong prior MAP is worse for small N, then both converge.")
-    ui.break_it("Choose 'Fixed value', set true A = 2.5, prior μ₀ = 0 and σ₀ = 0.1. A confident, wrong prior "
-                "can cost you hundreds of samples.")
+                "the CRLB when the prior is right, because it is biased and the CRLB only covers unbiased "
+                "estimators. With a wrong prior MAP is worse for small N, then both converge.")
 
 # --------------------------------------------------------------------------- frequency
 with t_freq:
     st.markdown(
         r"""
-**Model:** $x[n]=a\cos(2\pi f_0 n+\phi)+w[n]$. Estimating $f_0$ is pitch tracking, Doppler radar speed,
-or engine RPM from a vibration sensor. The (approximate) MLE is the **periodogram peak**, refined by a local
-search. Its CRLB is
-
-$$\operatorname{var}(\hat f_0)\;\ge\;\frac{12}{(2\pi)^2\,\eta\,N(N^2-1)},\qquad \eta=\frac{a^2}{2\sigma^2}.$$
-
-The bound falls as $N^{-3}$: longer windows help a lot.
+**The situation.** Estimate the frequency $f_0$ of a tone in noise from a window of $N$ samples, as in pitch
+tracking or Doppler radar. The estimator is the peak of the **periodogram** (an FFT power spectrum, bottom plot).
+The top plot repeats this many times at each SNR and compares the MSE with the CRLB (Theory eq. 10). Frequencies are
+in cycles per sample (0.5 = the Nyquist frequency).
 """
     )
     c1, c2 = st.columns([1, 2])
     with c1:
-        Nf = st.select_slider("Window length N", [16, 32, 64, 128, 256], 64)
-        f0 = st.slider("True f₀ (cycles/sample)", 0.05, 0.45, 0.1234, 0.0001, format="%.4f")
-        tr = st.select_slider("Trials per SNR", [50, 100, 200, 400], 100)
-        demo_snr = st.slider("SNR for the example spectrum (dB)", -15, 30, 0)
+        Nf = st.select_slider("Window length N", [16, 32, 64, 128, 256], 64,
+                              help="Samples per estimate. The CRLB falls like N³.")
+        f0 = st.slider("True f₀ (cycles/sample)", 0.05, 0.45, 0.1234, 0.0001, format="%.4f",
+                       help="The tone's frequency. 0.1234 × 16 kHz ≈ 1974 Hz, for example.")
+        tr = st.select_slider("Trials per SNR", [50, 100, 200, 400], 100, help="Repeats per point on the top plot.")
+        demo_snr = st.slider("SNR for the example spectrum (dB)", -15, 30, 0,
+                             help="SNR of the single example window in the bottom plot.")
     snrs = tuple(range(-15, 31, 3))
     r = _mc_freq(snrs, Nf, f0, tr, 5)
     rng = np.random.default_rng(int(demo_snr) + 100)
@@ -200,6 +256,21 @@ The bound falls as $N^{-3}$: longer windows help a lot.
                        annotation_position="bottom right")
         ui.show(ui.style(fig2, f"One noisy window at {demo_snr} dB SNR", "frequency (cycles/sample)", "dB",
                          height=280, legend=False))
+    ui.controls([
+        ("Window length N", r"$N$", "samples per estimate", "lower bound (∝ 1/N³); threshold moves to lower SNR"),
+        ("True f₀", r"$f_0$", "tone frequency", "little effect (away from 0 and 0.5)"),
+        ("SNR for the example", r"$\eta$ in dB", "tone power vs noise", "a cleaner peak in the bottom plot"),
+    ])
+    ui.experiments([
+        ("Look at the top plot with defaults.",
+         "Above about 0 dB the blue line follows the dashed bound; below it the error shoots up.",
+         "That's the threshold effect: a noise peak sometimes beats the true peak, and the estimate lands anywhere."),
+        ("Set the example SNR to −12 dB and step through a few values around it.",
+         "Sometimes the dotted 'estimate' line jumps far from the true f₀.",
+         "Those are the outliers that dominate the MSE below threshold."),
+        ("Change N from 64 to 256.", "The bound drops, and the threshold moves left (to lower SNR).",
+         "A longer window integrates more signal energy relative to noise in the peak bin."),
+    ])
     ui.takeaway("Above a threshold SNR, the MLE tracks the CRLB. Below it, a noise peak occasionally beats the "
                 "true peak and the error jumps by orders of magnitude: the **threshold effect**. This is why pitch "
                 "trackers produce octave errors in noise and why radar needs a minimum SNR.")
@@ -208,15 +279,16 @@ The bound falls as $N^{-3}$: longer windows help a lot.
 with t_out:
     st.markdown(
         r"""
-The MLE is only optimal **for the noise model you assumed**. The sample mean is the MLE for Gaussian noise. If
-the noise is Laplacian (heavy-tailed), the MLE becomes the **median**. Real sensors produce impulses (clicks,
-packet glitches, multipath), so the assumption matters.
+**The situation.** Same constant-level problem, but now a fraction of the readings are **impulses**: much larger
+errors, like clicks, glitches or multipath. We compare the sample **mean** (the MLE if noise is Gaussian) with the
+**median** (the MLE if noise is Laplacian, i.e. heavy-tailed). Theory §7.
 """
     )
     c1, c2 = st.columns([1, 2])
     with c1:
-        No = st.slider("Samples N", 5, 200, 50, key="o_N")
-        scale = st.slider("Outlier size (× σ)", 2.0, 50.0, 20.0, 1.0)
+        No = st.slider("Samples N", 5, 200, 50, key="o_N", help="Readings per estimate.")
+        scale = st.slider("Outlier size (× σ)", 2.0, 50.0, 20.0, 1.0,
+                          help="Outlier standard deviation as a multiple of the normal noise.")
     ps = tuple(np.round(np.linspace(0, 0.3, 13), 3))
     r = _mc_out(No, ps, scale, 3000, 9)
     with c2:
@@ -227,11 +299,21 @@ packet glitches, multipath), so the assumption matters.
                         line=dict(color=ui.C[2]))
         fig.update_yaxes(type="log")
         ui.show(ui.style(fig, "MSE as impulsive outliers contaminate the data", "outlier fraction (%)", "MSE"))
-    ui.break_it("With 0% outliers the mean wins (the median's variance is π/2 ≈ 1.57× larger). Add just 2–5% "
-                "impulses and the mean falls apart. A mismatched noise model can matter more than the estimator.")
+    ui.controls([
+        ("Samples N", r"$N$", "readings per estimate", "both errors fall like 1/N"),
+        ("Outlier size", "–", "how wild the impulses are", "the mean suffers far more; the median barely notices"),
+    ])
+    ui.experiments([
+        ("Read the left edge (0% outliers).", "The mean is better, by about a factor of 1.57.",
+         "With truly Gaussian noise the mean is optimal; the median's variance is π/2 times larger."),
+        ("Read at 2–5% outliers.", "The mean's error is already several times the median's.",
+         "A few huge impulses drag the average; the median ignores how large they are."),
+        ("Reduce outlier size to 2×.", "The gap nearly closes.", "Mild contamination is almost Gaussian anyway."),
+    ])
     ui.in_practice("Robust estimators (median, Huber loss) are used in GPS outlier rejection, audio click "
                    "removal and financial returns, where heavy tails are normal.")
 
 with t_code:
+    st.markdown("The exact functions this page runs (from `ssp/core/estimation.py`):")
     ui.source(est.dc_log_likelihood, est.dc_map, est.bernoulli_estimators, est.freq_mle, est.freq_crlb,
               est.monte_carlo_dc)

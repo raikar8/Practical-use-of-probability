@@ -7,9 +7,19 @@ from scipy import stats
 from ssp import ui
 from ssp.sims import sports as sp
 
-ui.header("Domain demo · Sports", "Skill ratings and live win probability",
-          "A result is a noisy measurement of a skill difference. How should ratings react, and how should a live "
-          "win probability move as goals go in?")
+ui.lab_intro(
+    "sports",
+    goal="Treat sport as an estimation problem: rate hidden team strengths from noisy results (Elo vs a Kalman "
+         "rating), and compute live win probabilities that update minute by minute, then check that they're honest.",
+    on_screen=[
+        "**Skill ratings:** prediction quality over a simulated league, one team's rating vs its true skill, and how "
+        "big each rating update is (Theory §1–3)",
+        "**Live win probability:** home/draw/away probabilities through a simulated football match, and a calibration "
+        "check over thousands of matches (Theory §4)",
+    ],
+    start_here="In Skill ratings, pick *Team 0*: it's replaced by a strong newcomer at the start of season 2. "
+               "Watch how fast Elo (orange) and Kalman (blue) climb toward its true skill (grey).",
+)
 
 t_rate, t_live = st.tabs(["Skill ratings: Elo vs Kalman", "Live win probability"])
 
@@ -17,26 +27,31 @@ t_rate, t_live = st.tabs(["Skill ratings: Elo vs Kalman", "Live win probability"
 with t_rate:
     st.markdown(
         r"""
-Each team has a hidden skill $\theta_i$ that drifts (form, injuries, transfers). A game between home $h$ and away $a$
-ends in a home win with probability $\sigma(\theta_h-\theta_a+\text{home advantage})$ (no draws, as in
-basketball, tennis or esports).
+**The situation.** A league of teams with hidden skills that drift over the seasons. Every game is a noisy
+yes/no measurement of a skill *difference* (no draws, as in basketball or esports). Two rating systems watch
+the results:
 
-* **Elo:** $\theta \mathrel{+}= K(\text{result}-\text{expected})$. A filter with a **fixed** gain $K$.
-* **Kalman (Glicko/TrueSkill idea):** each team has a belief $\mathcal N(\mu_i, v_i)$. Between rounds $v_i$ grows by
-  $q$ (skills drift). After a game, an EKF update on the logistic measurement gives a **per-team gain**
-  $K_i \approx \frac{v_i\,g}{g^2(v_h+v_a)+g}$ with $g=p(1-p)$. Uncertain teams move a lot; well-known teams barely move.
+* **Elo:** a fixed-size step toward the surprise, $\theta \mathrel{+}= K(\text{result} - \text{expected})$ (Theory eq. 2)
+* **Kalman:** a mean *and* an uncertainty per team; the step size comes from the uncertainty (Theory eq. 3)
 
-At the start of season 2 a strong **newcomer** replaces team 0, and both systems start it at the average.
+Both predict each game *before* seeing it, and we score those predictions. At the start of season 2 a strong
+**newcomer** replaces team 0, and both systems start it at the league average.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        n_teams = st.select_slider("Teams", [8, 12, 16, 20, 24], 16)
-        seasons = st.slider("Seasons", 1, 5, 3)
-        drift = st.slider("Skill drift per round (σ)", 0.0, 0.15, 0.04, 0.01)
-        newc = st.slider("Newcomer's true skill (league σ = 1)", -1.0, 3.0, 1.5, 0.1)
-        K = st.select_slider("Elo K", [0.02, 0.05, 0.1, 0.2, 0.3, 0.5], 0.2)
-        q = st.select_slider("Kalman q (skill drift variance per round)", [0.0001, 0.001, 0.002, 0.005, 0.02], 0.002)
+        st.markdown("**The league**")
+        n_teams = st.select_slider("Teams", [8, 12, 16, 20, 24], 16, help="Teams playing a double round-robin each season.")
+        seasons = st.slider("Seasons", 1, 5, 3, help="Number of seasons simulated.")
+        drift = st.slider("Skill drift per round (σ)", 0.0, 0.15, 0.04, 0.01,
+                          help="How much true skills change between rounds (form, injuries). League spread is 1.")
+        newc = st.slider("Newcomer's true skill (league σ = 1)", -1.0, 3.0, 1.5, 0.1,
+                         help="True skill of the team that replaces team 0 in season 2. 1.5 ≈ top of the league.")
+        st.markdown("**The rating systems**")
+        K = st.select_slider("Elo K", [0.02, 0.05, 0.1, 0.2, 0.3, 0.5], 0.2,
+                             help="Elo's fixed step size: how much one result moves a rating.")
+        q = st.select_slider("Kalman q (skill drift variance per round)", [0.0001, 0.001, 0.002, 0.005, 0.02], 0.002,
+                             help="How much the Kalman rating expects skills to drift between rounds (its Q).")
         lseed = st.number_input("Random seed", 0, 9999, 4, key="lg_seed")
     cfg = sp.LeagueConfig(n_teams=n_teams, seasons=seasons, drift=drift, new_team_skill=newc, seed=int(lseed))
     lg = sp.simulate_league(cfg)
@@ -57,7 +72,8 @@ At the start of season 2 a strong **newcomer** replaces team 0, and both systems
             fig.add_vline(x=g0, line=dict(color=ui.C["truth"], dash="dash"), annotation_text="newcomer arrives")
         ui.show(ui.style(fig, f"Prediction quality: rolling log-loss over {win} games (lower is better)",
                          "game number", "log-loss", height=320))
-        team = st.selectbox("Team to inspect", list(range(n_teams)), format_func=lambda i: f"Team {i}" +
+        team = st.selectbox("Team to inspect", list(range(n_teams)), help="Whose rating history to plot.",
+                            format_func=lambda i: f"Team {i}" +
                             (" (newcomer from season 2)" if i == 0 and seasons > 1 else ""))
         S = lg["skills"] - lg["skills"].mean(axis=1, keepdims=True)
         E = e["ratings"] - e["ratings"].mean(axis=1, keepdims=True)
@@ -103,8 +119,24 @@ At the start of season 2 a strong **newcomer** replaces team 0, and both systems
                 "fast but makes every established team's rating noisy. The Kalman filter gets both, because its "
                 "gain comes from its uncertainty. Averaged over many simulated leagues, its log-loss and rating "
                 "error are lower than the best fixed-K Elo.")
-    ui.break_it("Kalman q = 0.0001 with drift 0.1: the filter thinks skills are frozen, so its gains shrink to "
-                "nothing and it stops tracking form. That's the 'Q too small' failure from L3, in sport.")
+    ui.controls([
+        ("Teams, Seasons", "–", "league size and length", "more data per team"),
+        ("Skill drift", "random walk of θ", "how much true skills change", "ratings must keep adapting"),
+        ("Newcomer's true skill", "–", "the hidden strength of team 0 from season 2", "a bigger surprise to learn"),
+        ("Elo K", r"$K$ (eq. 2)", "fixed step size", "faster but noisier ratings"),
+        ("Kalman q", r"$q$ (§3)", "expected skill drift", "larger gains, faster adaptation"),
+    ])
+    ui.experiments([
+        ("Defaults: read the table.", "Log-loss: Kalman ≈ 0.535, Elo ≈ 0.547, oracle (true skills) ≈ 0.493, coin ≈ 0.693.",
+         "The Kalman rating adapts its step size per team, so it predicts better than any single fixed K."),
+        ("Pick Team 0 and look at the gain plot.",
+         "The Kalman gain is large for the newcomer's first games, then shrinks toward Elo's line.",
+         "The newcomer starts uncertain, so each result is informative; as evidence accumulates, v (and the gain) falls."),
+        ("Set Elo K = 0.05.", "Elo's log-loss worsens to ≈ 0.60, and its newcomer line crawls upward all season.",
+         "A small fixed gain is stable but can't catch up with large changes."),
+        ("Set Elo K = 0.5 and inspect an established team.", "Elo's line jumps up and down every round.",
+         "A large fixed gain chases every lucky or unlucky result."),
+    ])
     ui.in_practice("Elo is used in chess and many sports rankings. Glicko adds a rating deviation (exactly v here). "
                    "TrueSkill (Xbox matchmaking) extends the Gaussian belief to teams and multiplayer games. Win "
                    "probabilities from such ratings drive matchmaking and seeding.")
@@ -113,25 +145,25 @@ At the start of season 2 a strong **newcomer** replaces team 0, and both systems
 with t_live:
     st.markdown(
         r"""
-**Model (football):** goals are Poisson arrivals with pre-match rates $\lambda_H, \lambda_A$ per 90 minutes. At minute
-$m$ with score $(g_H, g_A)$, the remaining goals are $\text{Poisson}(\lambda\,\tfrac{90-m}{90})$ for each side, and
-$P(\text{home win}) = P(g_H + X > g_A + Y)$.
-
-**Learning during the match (optional):** put a Gamma prior on each rate, worth a few games of evidence.
-Gamma is conjugate to Poisson, so after $k$ goals in $m$ minutes the posterior is still Gamma and the remaining
-goals become **negative binomial**. A team that keeps scoring is believed to be stronger than expected.
+**The situation.** A football match between teams expected to score $\lambda_H$ and $\lambda_A$ goals per 90
+minutes. Goals arrive at random (a Poisson process). At each minute we compute the probability of a home win, a
+draw and an away win from the current score and the time left (Theory eq. 4). Optionally the model **learns**
+each team's scoring rate during the match (Theory eq. 5), and a red card changes both rates.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        lh = st.slider("Home expected goals (pre-match)", 0.3, 3.5, 1.6, 0.1)
-        la = st.slider("Away expected goals (pre-match)", 0.3, 3.5, 1.1, 0.1)
-        learn = st.toggle("Learn the scoring rates during the match", False)
+        lh = st.slider("Home expected goals (pre-match)", 0.3, 3.5, 1.6, 0.1,
+                       help="Pre-match estimate of the home team's goals per 90 minutes (λ_H).")
+        la = st.slider("Away expected goals (pre-match)", 0.3, 3.5, 1.1, 0.1, help="Same for the away team (λ_A).")
+        learn = st.toggle("Learn the scoring rates during the match", False,
+                          help="Update λ with a Gamma prior as goals happen, instead of keeping the pre-match values.")
         prior_min = st.select_slider("Prior strength (minutes of evidence)", [90, 180, 270, 540, 900], 270,
                                      disabled=not learn)
-        rc = st.slider("Red card minute (0 = none)", 0, 89, 0)
+        rc = st.slider("Red card minute (0 = none)", 0, 89, 0,
+                       help="From this minute, the penalised team's rate × 0.65 and the opponent's × 1.3.")
         rc_side = st.radio("Red card for", ["away", "home"], horizontal=True, disabled=rc == 0)
-        mseed = st.number_input("Match seed", 0, 9999, 4)
+        mseed = st.number_input("Match seed", 0, 9999, 4, help="A different simulated match.")
     rcm = float(rc) if rc else None
     g = sp.simulate_match(lh, la, np.random.default_rng(int(mseed)), rcm, rc_side)
     minutes, curve = sp.live_curve(g, lh, la, learn, prior_min, rcm, rc_side)
@@ -154,8 +186,10 @@ goals become **negative binomial**. A team that keeps scoring is believed to be 
                          "probability", height=380))
         st.markdown("**Are these probabilities honest?** Simulate many matches and check calibration at one minute.")
         cc1, cc2, cc3 = st.columns(3)
-        at_min = cc1.slider("Check at minute", 0, 85, 60, 5)
-        n_sim = cc2.select_slider("Simulated matches", [500, 1000, 3000], 1000)
+        at_min = cc1.slider("Check at minute", 0, 85, 60, 5,
+                            help="Record the predicted P(home win) at this minute in every simulated match.")
+        n_sim = cc2.select_slider("Simulated matches", [500, 1000, 3000], 1000,
+                                  help="More matches = a less noisy calibration curve.")
         spread = cc3.slider("Pre-match rate error (log σ)", 0.0, 0.8, 0.0, 0.1,
                             help="0 = the pre-match rates are exactly right. Larger = real rates differ, as in reality.")
 
@@ -184,8 +218,26 @@ goals become **negative binomial**. A team that keeps scoring is believed to be 
                 "that's ahead, because there's less time to come back. When the pre-match rates are right, the plain "
                 "Poisson model is already calibrated. When they're off, learning the rates in-game helps only "
                 "slightly: goals are rare, so the prior still dominates.")
-    ui.break_it("Prior strength 90 minutes with learning on: one early goal makes the model think that team is "
-                "unstoppable. It overreacts, like a small-sample MLE (L1). A red card shifts the rates for the rest "
-                "of the match, and the curve bends immediately even without a goal.")
+    ui.controls([
+        ("Expected goals", r"$\lambda_H, \lambda_A$", "pre-match scoring rates", "that team's win probability rises"),
+        ("Learn the scoring rates", "Gamma–Poisson (eq. 5)", "update rates from goals scored", "reacts to surprises"),
+        ("Prior strength", r"$m_0$ minutes", "how much the pre-match estimate counts", "less reaction to early goals"),
+        ("Red card minute / side", "rate × 0.65 / × 1.3", "a sending-off", "the curve bends without any goal"),
+        ("Check at minute, Simulated matches, Pre-match rate error", "–", "calibration experiment",
+         "tests whether the probabilities are honest"),
+    ])
+    ui.experiments([
+        ("Defaults: follow the curves.", "Before the first goal, home ≈ 49%, draw ≈ 25%, away ≈ 26%; each home goal "
+         "makes a jump, and the curves drift between goals.",
+         "Every scoreless minute leaves less time to change the result, so the current leader gains."),
+        ("Read the curves around minute 80 at 0–0 (try other match seeds).", "A draw becomes the most likely outcome "
+         "(≈ 76% at 0–0 with 10 minutes left).",
+         "Few goals are expected in 10 minutes; 'no more goals' is the single most likely future."),
+        ("Turn learning on with prior strength 90.", "After an early goal the scorer's win probability rises more "
+         "than without learning.",
+         "A weak prior plus one goal = a big upward revision of that team's rate: small-sample overreaction (Level 1)."),
+        ("Calibration: set 'Pre-match rate error' to 0.", "Both curves lie near the diagonal.",
+         "If the model's assumptions hold, its probabilities are honest: 70% predictions win ~70% of the time."),
+    ])
     ui.in_practice("Broadcast win-probability graphics, sports analytics and in-play pricing are built on models of "
                    "this shape, usually with richer inputs (expected-goals from shots, possession, cards).")

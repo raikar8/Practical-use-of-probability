@@ -8,39 +8,42 @@ from ssp import ui
 from ssp.core.kalman import cov_ellipse
 from ssp.sims import netcode as nc
 
-ui.header("Domain demo · Real-time games", "Where is the other player *right now*?",
-          "Network snapshots arrive late, jittery and sometimes not at all. What should the client draw this frame?")
-
-st.markdown(
-    r"""
-The server sends the remote player's position $\mathbf z_k$ (time-stamped $t_k$) at a fixed rate. Each packet
-takes $\tfrac{\text{ping}}{2}+\text{jitter}$ to arrive, or is lost. At every 60 Hz frame the client must draw an
-estimate of the **present** position. Four strategies compete:
-
-| Strategy | What it draws | Weakness |
-|---|---|---|
-| **Snap** | newest snapshot as-is | always behind by the network delay |
-| **Extrapolate** | newest snapshot + velocity from the last two × elapsed time | amplifies snapshot noise, overshoots on turns |
-| **Kalman** | constant-velocity KF, updated per packet, then *predicted* to now: $\hat{\mathbf x}(t)=F(t-t_k)\hat{\mathbf x}_k$ | needs a manoeuvre-noise $q$; still can't foresee a juke |
-| **Interpolate** | blend two snapshots, rendered $\tfrac{\text{ping}}{2}$ + buffer in the past | smooth and correct about the past, but late |
-
-The Kalman filter also reports an **uncertainty radius** that grows while packets are missing. A game can
-use it to decide when to stop extrapolating, or a server can use it to judge whether a hit was plausible.
-"""
+ui.lab_intro(
+    "netcode",
+    goal="Simulate an online match with real network problems (delay, jitter, loss) and compare four ways a game "
+         "client can draw another player *now*: show the last packet, interpolate, extrapolate, or run a Kalman "
+         "filter and predict.",
+    on_screen=[
+        "**Animated arena (left):** the true player (grey ring) and where each method draws them. **Zoom panel "
+        "(right):** the same, with the true player held at the centre, so each dot's distance from the centre is "
+        "its error. The blue shaded region is the Kalman filter's 95% uncertainty.",
+        "**Table and error plot:** each method's error over the whole match",
+        "**Ping sweep:** how each method degrades as latency grows",
+    ],
+    start_here="Press ▶ under the arena and watch the zoom panel: which coloured dot stays closest to the centre "
+               "when the player changes direction?",
 )
 
 c1, c2 = st.columns([1, 2.4])
 with c1:
-    ping = st.slider("Ping (round trip, ms)", 0, 400, 120, 10)
-    jitter = st.slider("Jitter σ (ms)", 0, 80, 20, 5)
-    loss = st.slider("Packet loss (%)", 0, 40, 5) / 100
-    send_hz = st.select_slider("Snapshot rate (Hz)", [10, 15, 20, 30, 60], 20)
+    st.markdown("**Network**")
+    ping = st.slider("Ping (round trip, ms)", 0, 400, 120, 10,
+                     help="Round-trip time. A snapshot takes about half of this to arrive.")
+    jitter = st.slider("Jitter σ (ms)", 0, 80, 20, 5, help="Random extra delay per packet, so arrivals are uneven.")
+    loss = st.slider("Packet loss (%)", 0, 40, 5, help="Fraction of snapshots that never arrive.") / 100
+    send_hz = st.select_slider("Snapshot rate (Hz)", [10, 15, 20, 30, 60], 20,
+                               help="How often the server sends the player's position.")
     quant = st.slider("Snapshot position noise σ (m)", 0.0, 0.5, 0.10, 0.01,
-                      help="Quantisation / compression of positions in the packet")
-    agility = st.slider("Player agility (direction changes per s)", 0.1, 4.0, 1.0, 0.1)
-    interp = st.slider("Interpolation buffer (ms)", 0, 200, 100, 10)
-    q = st.select_slider("Kalman manoeuvre noise q", [1, 5, 20, 60, 150, 400, 1000], 60)
-    seed = st.number_input("Random seed", 0, 9999, 3)
+                      help="Error added to each sent position by quantisation or compression.")
+    st.markdown("**Player**")
+    agility = st.slider("Player agility (direction changes per s)", 0.1, 4.0, 1.0, 0.1,
+                        help="How often the player suddenly changes direction: the unpredictable part.")
+    st.markdown("**Client methods**")
+    interp = st.slider("Interpolation buffer (ms)", 0, 200, 100, 10,
+                       help="How far in the past the interpolation method renders (on top of the network delay).")
+    q = st.select_slider("Kalman manoeuvre noise q", [1, 5, 20, 60, 150, 400, 1000], 60,
+                         help="How violently the Kalman filter expects players to change velocity (Theory eq. 1).")
+    seed = st.number_input("Random seed", 0, 9999, 3, help="A different match.")
 
 cfg = nc.NetConfig(ping_ms=float(ping), jitter_ms=float(jitter), loss=float(loss), send_hz=int(send_hz),
                    quant_std=float(quant), agility=float(agility), interp_delay_ms=float(interp), kf_q=float(q),
@@ -64,8 +67,10 @@ methods = {"snap": ("Snap", ui.C[8]), "extrapolate": ("Extrapolate", ui.C[2]),
 
 # ---------------------------------------------------------------- animated arena (10 s window)
 with c2:
-    w0 = st.slider("Animation window start (s)", 0, int(cfg.duration) - 10, 5)
-    zoom = st.select_slider("Zoom panel half-width (m)", [0.5, 1.0, 1.5, 2.0, 3.0], 1.5)
+    w0 = st.slider("Animation window start (s)", 0, int(cfg.duration) - 10, 5,
+                   help="Which 10-second stretch of the 30 s match to animate.")
+    zoom = st.select_slider("Zoom panel half-width (m)", [0.5, 1.0, 1.5, 2.0, 3.0], 1.5,
+                            help="Size of the right-hand error panel.")
     i0, i1 = w0 * cfg.frame_hz, (w0 + 10) * cfg.frame_hz
     every = 2                                     # 30 fps animation
     trail = cfg.frame_hz // 2                     # 0.5 s of true trail
@@ -149,14 +154,32 @@ ui.takeaway("Prediction is the only way to be close to the present. The Kalman f
             "things the heuristics don't: it averages snapshot noise into a clean velocity estimate, and it weighs "
             "each new packet against its prediction. Its error still grows with ping, because nobody can predict a "
             "juke that hasn't been sent yet.")
-ui.break_it("(1) Raise snapshot noise to 0.3 m: naive extrapolation goes wild, Kalman stays calm. (2) Set q = 1: "
-            "the filter trusts its constant-velocity model too much, overshoots every turn, and its claimed radius "
-            "stops covering the truth. (3) Set q = 1000: it barely filters at all. (4) Agility 4 /s: every method "
-            "suffers, and an IMM filter (Level 5) mixing 'running' and 'turning' models is the next step.")
+ui.controls([
+    ("Ping, Jitter, Packet loss", "–", "network delay and unreliability", "every method falls further behind"),
+    ("Snapshot rate", r"$1/\Delta t$", "how often positions are sent", "fresher data, smaller errors"),
+    ("Snapshot position noise σ", r"$\sqrt R$", "error in each sent position", "naive extrapolation breaks down"),
+    ("Player agility", "–", "how often the player jukes", "more unpredictable motion for everyone"),
+    ("Interpolation buffer", "–", "how far in the past interpolation renders", "smoother but later"),
+    ("Kalman manoeuvre noise q", r"$q$", "expected acceleration", "more responsive, noisier, wider radius"),
+])
+ui.experiments([
+    ("Defaults: read the table.", "Kalman ≈ 0.25 m mean error; snap and extrapolate ≈ 0.44 m; interpolate ≈ 0.67 m.",
+     "Only prediction can compensate for delay; the Kalman filter predicts *and* averages out snapshot noise."),
+    ("Raise snapshot noise to 0.3 m.", "Extrapolate jumps to ≈ 1.3 m (worse than snapping); Kalman stays ≈ 0.46 m.",
+     "Velocity from two noisy points 50 ms apart is very noisy. The filter estimates velocity from many points."),
+    ("Set Kalman q = 1, and compare the error plot with the dotted radius.",
+     "The mean error barely changes, but errors after each juke now poke well above the radius (it covers only "
+     "~64% of frames).",
+     "The filter assumes near-straight running and becomes overconfident: Level 3's 'Q too small' failure."),
+    ("Set q = 1000.", "The mean error rises to ≈ 0.40 m and the radius becomes very wide.",
+     "Too much expected manoeuvring: each noisy snapshot is trusted, and little is averaged."),
+    ("Raise ping to 300 ms.", "Everything roughly doubles, but Kalman stays about half of snap's error.",
+     "Nobody can predict a juke that hasn't been sent yet; error grows with delay for every method."),
+])
 ui.in_practice("Many engines render remote players slightly in the past with interpolation (Valve's Source "
                "engine is the well-known example) and switch to extrapolation when packets stop. Kalman-style "
                "predict-and-correct is the principled version of that trade-off. The same maths runs radar and "
                "air-traffic tracking.")
 
-with st.expander("Code: the client-side estimators"):
+with st.expander("Code: the client-side estimators (from `ssp/sims/netcode.py`)"):
     ui.source(nc.run_client)

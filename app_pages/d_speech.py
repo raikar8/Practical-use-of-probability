@@ -8,39 +8,35 @@ from ssp import ui
 from ssp.core.kalman import cov_ellipse
 from ssp.sims import speech as sp
 
-ui.header("Domain demo · Speech & hearing", "Voice activity detection in a car with an HMM",
-          "Is someone talking in this 10 ms frame? Answer it frame by frame and the output flickers. Answer it "
-          "with an HMM and you get clean speech segments.")
-
-with st.expander("The model (open for the math)"):
-    st.markdown(
-        r"""
-* **Hidden state** $s_t\in\{\text{noise}, \text{speech}\}$ per 10 ms frame, following a 2-state Markov chain.
-  The self-transition $a$ is a **duration prior**: expected segment length $= 10\,\text{ms}/(1-a)$, so
-  $a=0.99$ means about 1 s.
-* **Observations** per frame, computed only in the 300–4000 Hz band (where speech lives and car rumble is weak):
-  band log-energy and spectral flatness. Voiced speech is harmonic, so its spectrum is peaky (low flatness). Noise
-  is flat.
-* **Emissions:** one diagonal Gaussian per state, learned **unsupervised** by Baum–Welch from the recording itself.
-* **Evidence scale** $\kappa$: overlapping 25 ms frames are strongly correlated, so treating them as independent
-  over-counts evidence and overwhelms the duration prior. Decoding with $\kappa \log b_k(x_t)$ is the same
-  "acoustic scale" trick speech recognisers use.
-* **Decoders:** forward $P(\text{speech}\mid x_{1:t})>0.5$ (causal, so it can run inside a phone or a car head
-  unit) and Viterbi (offline, best segmentation).
-"""
-    )
+ui.lab_intro(
+    "speech",
+    goal="Detect when someone is speaking in noisy audio, synthetic or your own recording, and compare a simple "
+         "energy threshold with an HMM that learns speech/noise from the recording and knows speech comes in "
+         "segments.",
+    on_screen=[
+        "**Top:** the waveform. **Middle:** the band energy feature with the energy detector's threshold. "
+        "**Bottom lanes:** each detector's decision (high = speech), with the true speech on top for synthetic audio.",
+        "**Score table:** accuracy, missed speech, false alarms, and how often each detector flips",
+        "**Feature scatter:** every 10 ms frame as a dot in (energy, flatness) space, with the two Gaussians the HMM "
+        "learned",
+        "**Listen:** the noisy input and the audio gated by each detector",
+    ],
+    start_here="Compare the 'Energy threshold' lane (orange, flickering) with the 'HMM Viterbi' lane (aqua, whole "
+               "segments) against the grey Truth lane, then play the two gated versions.",
+)
 
 c1, c2 = st.columns([1, 2.4])
 with c1:
-    src = st.radio("Audio", ["Synthetic speech in noise (truth known)", "Your own voice: record or upload"])
+    src = st.radio("Audio", ["Synthetic speech in noise (truth known)", "Your own voice: record or upload"],
+                   help="Synthetic audio has known true speech segments, so the detectors can be scored.")
     truth = None
     if src.startswith("Synthetic"):
         noise = st.selectbox("Noise", ["car", "white", "babble"], format_func={
             "car": "Car cabin (rumble + engine + road hiss)", "white": "White noise",
-            "babble": "Babble (other talkers)"}.get)
-        snr = st.slider("SNR (dB)", -10, 30, 5)
-        dur = st.slider("Length (s)", 6, 30, 12)
-        seed = st.number_input("Random seed", 0, 9999, 1)
+            "babble": "Babble (other talkers)"}.get, help="Type of background noise mixed with the speech.")
+        snr = st.slider("SNR (dB)", -10, 30, 5, help="Speech level vs noise level during speech. 0 dB = equally loud.")
+        dur = st.slider("Length (s)", 6, 30, 12, help="Length of the synthetic recording.")
+        seed = st.number_input("Random seed", 0, 9999, 1, help="Different sentences and noise.")
 
         @st.cache_data(show_spinner="Synthesising speech…")
         def _scene(dur, snr, noise, seed):
@@ -57,12 +53,20 @@ with c1:
             st.stop()
         audio, clean, mask = rec, None, None
     st.divider()
-    margin = st.slider("Energy VAD: dB above the noise floor", 1.0, 20.0, 6.0, 0.5)
+    st.markdown("**Energy detector**")
+    margin = st.slider("Energy VAD: dB above the noise floor", 1.0, 20.0, 6.0, 0.5,
+                       help="A frame counts as speech if its band energy exceeds the noise floor (10th percentile) "
+                            "by this many dB.")
+    st.markdown("**HMM detector**")
     learn_A = st.toggle("Use the duration prior learned by EM", False,
                         help="Off: set the duration prior yourself below")
     stay = st.select_slider("Duration prior: P(stay) per 10 ms frame", [0.9, 0.95, 0.98, 0.99, 0.995, 0.999], 0.99,
-                            disabled=learn_A)
-    kappa = st.select_slider("Evidence scale κ", [0.05, 0.1, 0.2, 0.3, 0.5, 1.0], 0.1)
+                            disabled=learn_A,
+                            help="Probability of staying in the same state for the next frame. Expected segment "
+                                 "length = 10 ms / (1 − P).")
+    kappa = st.select_slider("Evidence scale κ", [0.05, 0.1, 0.2, 0.3, 0.5, 1.0], 0.1,
+                             help="Down-weights each frame's evidence, because overlapping frames aren't independent "
+                                  "(Theory §4c). 1 = no correction.")
     st.caption(f"Expected segment length ≈ {10 / (1 - stay):.0f} ms" if not learn_A else "Using EM's estimate")
 
 feats = sp.frame_features(audio)
@@ -151,15 +155,32 @@ with c4:
 ui.takeaway("The energy detector decides each frame alone, so it chops the quiet gaps and soft endings inside "
             "words. The HMM keeps a belief and needs sustained evidence to change its mind, so speech comes out as "
             "whole segments. The forward version does this causally, which is what runs in a real-time product.")
-ui.break_it("(1) Set κ = 1: the duration prior is drowned out and the HMM flickers almost like the energy detector. "
-            "(2) P(stay) = 0.999: the detector becomes too reluctant to switch and merges pauses into speech. "
-            "(3) Babble noise: the 'noise' looks like speech in both features, so every detector degrades. That's "
-            "why products add pitch, modulation or neural features. (4) White noise at 0 dB: energy fails, while "
-            "flatness still carries some information.")
+ui.controls([
+    ("Audio / Noise / SNR", "–", "what the detectors hear", "higher SNR = easier"),
+    ("Energy VAD margin", "–", "threshold above the noise floor", "fewer false alarms, more missed speech"),
+    ("Use the duration prior learned by EM", r"$a$ from Baum–Welch", "let the data set the segment length", "–"),
+    ("P(stay)", r"$a$ (Theory eq. 3)", "duration prior", "longer segments, less flicker"),
+    ("Evidence scale κ", r"$\kappa$", "weight of each frame's evidence", "more responsive, more flicker"),
+])
+ui.experiments([
+    ("Defaults (car noise, 5 dB): read the score table.",
+     "Energy ≈ 88% with ~8 flips/s; HMM forward ≈ 93% with ~3/s; HMM Viterbi ≈ 99% with < 1/s.",
+     "Frame-by-frame decisions chop the quiet bits inside words; the HMM's duration prior bridges them."),
+    ("Set κ = 1.", "Both HMM lanes start flickering, and accuracy falls to the energy detector's level (≈ 88%).",
+     "Full-weight evidence from overlapping frames overwhelms the duration prior."),
+    ("Set κ back to 0.1 and P(stay) to 0.9.", "The HMM lanes flicker more (forward ≈ 5 flips/s).",
+     "A 100 ms expected duration is too short for speech, so the prior no longer bridges gaps between syllables."),
+    ("Set the energy margin to 3 dB.", "The energy lane flips ~20 times per second and false alarms jump to ~30%.",
+     "A low threshold catches more speech but also noise peaks. Hand-tuned thresholds are fragile."),
+    ("Set Noise = babble.", "Every detector calls ~45% of noise frames 'speech'.",
+     "Babble *is* speech: energy and flatness can't separate it. Products add pitch, modulation or neural features."),
+    ("Set Noise = white at 0 dB.", "The energy detector misses almost all speech; the HMM still finds part of it.",
+     "Broadband noise raises the energy floor, but speech's peaky spectrum still shows up in flatness."),
+])
 ui.in_practice("VADs gate echo-cancellers and noise-suppressors (adapt the noise estimate only in pauses), "
                "trigger wake-word and ASR engines in cars and phones, and drive discontinuous transmission in "
                "speech codecs. Statistical-model VADs with HMM-style hangover (Sohn et al., 1999) are the classic "
                "design. Hearing aids use similar speech/noise classifiers to switch programs.")
 
-with st.expander("Code: features and the HMM VAD"):
+with st.expander("Code: features and the HMM VAD (from `ssp/sims/speech.py`)"):
     ui.source(sp.frame_features, sp.hmm_vad, sp.energy_vad)

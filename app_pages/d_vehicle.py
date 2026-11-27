@@ -7,40 +7,37 @@ from ssp import ui
 from ssp.core.kalman import cov_ellipse
 from ssp.sims import vehicle as veh
 
-ui.header("Domain demo · Automotive", "Car GPS + IMU fusion through a tunnel",
-          "GPS is noisy and slow, the IMU is fast but drifts. Can an EKF beat both, and survive losing GPS?")
-
-with st.expander("The model (open for the math)", expanded=False):
-    st.markdown(
-        r"""
-**State** $\mathbf x=[p_x,\,p_y,\,\theta,\,v,\,b_\omega]$: position, heading, speed and the **gyro bias**, which
-is never measured directly.
-
-**Predict at 100 Hz from the IMU** (yaw rate $\omega_m$, acceleration $a_m$), which is nonlinear in $\theta$:
-
-$$p_x' = p_x + v\cos\theta\,\Delta t,\quad p_y' = p_y + v\sin\theta\,\Delta t,\quad
-\theta' = \theta + (\omega_m - b_\omega)\Delta t,\quad v' = v + a_m\Delta t,\quad b_\omega'=b_\omega$$
-
-The EKF linearises this with the Jacobian $F=\partial f/\partial\mathbf x$ at the current estimate
-(e.g. $\partial p_x'/\partial\theta = -v\sin\theta\,\Delta t$).
-
-**Update at the GPS rate:** $\mathbf z = [p_x, p_y] + \mathbf v$. In the tunnel there are no updates, so the
-filter runs on prediction alone and its uncertainty grows.
-
-**Why the bias becomes observable:** a biased heading makes predicted positions drift *sideways* from GPS in
-a consistent way. Through the cross-covariance in $P$, the filter attributes that drift to $b_\omega$.
-"""
-    )
+ui.lab_intro(
+    "vehicle",
+    goal="Drive a simulated car through a tunnel and compare three ways of knowing where it is: raw GPS, IMU "
+         "dead reckoning, and an EKF that fuses both and learns the gyro's bias.",
+    on_screen=[
+        "**Map (animated):** grey road (truth), orange GPS fixes, red dead-reckoning track, blue EKF track with its "
+        "95% uncertainty region. The thick grey stretch is the tunnel (no GPS).",
+        "**Error plot:** each method's position error over time (log scale), with the EKF's own 95% bound as a "
+        "dotted line",
+        "**Bias plot:** the EKF's estimate of the gyro bias converging to the true value",
+    ],
+    start_here="Press ▶ under the map. Watch the red track drift away while the blue one stays on the road, and "
+               "watch the blue region swell inside the tunnel.",
+)
 
 c1, c2 = st.columns([1, 2.4])
 with c1:
-    gps_hz = st.select_slider("GPS rate (Hz)", [0.5, 1.0, 2.0, 5.0, 10.0], 1.0)
-    gps_std = st.slider("GPS noise σ (m)", 0.5, 10.0, 3.0, 0.5)
-    t_start = st.slider("Tunnel entry (s)", 10, 100, 50, 5)
-    t_len = st.slider("Tunnel length (s)", 0, 60, 25, 5)
-    bias_dps = st.slider("True gyro bias (deg/s)", 0.0, 3.0, 0.6, 0.1)
-    est_bias = st.toggle("EKF estimates the gyro bias", True)
-    seed = st.number_input("Random seed", 0, 9999, 7)
+    st.markdown("**Sensors**")
+    gps_hz = st.select_slider("GPS rate (Hz)", [0.5, 1.0, 2.0, 5.0, 10.0], 1.0,
+                              help="Position fixes per second. Car receivers typically give 1–10 Hz.")
+    gps_std = st.slider("GPS noise σ (m)", 0.5, 10.0, 3.0, 0.5,
+                        help="Standard deviation of each fix. ~3 m in open sky, worse near buildings.")
+    bias_dps = st.slider("True gyro bias (deg/s)", 0.0, 3.0, 0.6, 0.1,
+                         help="The gyro's constant offset. It makes dead-reckoning heading drift (Theory eq. 1).")
+    st.markdown("**Scenario**")
+    t_start = st.slider("Tunnel entry (s)", 10, 100, 50, 5, help="When GPS is lost.")
+    t_len = st.slider("Tunnel length (s)", 0, 60, 25, 5, help="How long GPS is lost (0 = no tunnel).")
+    st.markdown("**Filter**")
+    est_bias = st.toggle("EKF estimates the gyro bias", True,
+                         help="On: the bias is part of the EKF state (Theory §3). Off: the EKF assumes the gyro is perfect.")
+    seed = st.number_input("Random seed", 0, 9999, 7, help="Different sensor noise.")
 
 cfg = veh.VehicleConfig(gps_hz=gps_hz, gps_std=gps_std, tunnel_start=float(t_start), tunnel_len=float(t_len),
                         gyro_bias=np.deg2rad(bias_dps), estimate_bias=est_bias, seed=int(seed))
@@ -132,11 +129,29 @@ with c4:
 ui.takeaway("Raw GPS is unbiased but jumpy, and dead reckoning is smooth but drifts off the map within a minute. "
             "The EKF uses the IMU between fixes and GPS to stop the drift, so it beats both. In the tunnel the "
             "learned bias keeps dead reckoning accurate, and the growing 95% region tells you how far to trust it.")
-ui.break_it("Turn off bias estimation. In the tunnel the error explodes past the claimed bound: an overconfident "
-            "filter that's wrong about how wrong it is. In a real car this is what makes navigation 'jump' when "
-            "GPS returns. Then try GPS at 0.5 Hz with σ = 10 m: the IMU is doing most of the work.")
+ui.controls([
+    ("GPS rate", "update rate of eq. 3.1", "fixes per second", "more corrections, smaller error"),
+    ("GPS noise σ", r"$\sigma_{\text{GPS}}$", "fix accuracy", "a noisier map; the EKF smooths it"),
+    ("True gyro bias", r"$b$", "hidden gyro offset", "dead reckoning drifts faster (∝ b·t²)"),
+    ("Tunnel entry / length", "–", "GPS outage", "a longer outage, larger uncertainty"),
+    ("EKF estimates the gyro bias", r"$b_\omega$ in the state", "state augmentation on/off", "–"),
+])
+ui.experiments([
+    ("Defaults: read the five metrics.",
+     "GPS ≈ 4.0 m, EKF ≈ 2.0 m, dead reckoning ≈ 400 m; the worst EKF error in the tunnel is ≈ 5 m.",
+     "Fusion beats both sensors: the IMU smooths between fixes, GPS stops the drift, and the learned bias keeps the "
+     "tunnel short-term accurate."),
+    ("Turn off 'EKF estimates the gyro bias'.",
+     "The RMSE jumps to ≈ 32 m, the tunnel error to ≈ 110 m, and the truth sits inside the 95% region only ~14% of "
+     "the time.",
+     "The filter doesn't know about the bias, so it drifts *and* stays confident: overconfidence, the worst failure."),
+    ("Set GPS to 0.5 Hz with σ = 10 m.", "GPS alone is ≈ 14 m RMSE, but the EKF still manages ≈ 6 m.",
+     "With poor GPS the IMU does most of the work, and the EKF weighs each fix by how much it trusts it."),
+    ("Set the tunnel length to 60 s.", "The worst tunnel error grows to ≈ 16 m, and the 95% region grows with it.",
+     "Without updates, small residual heading and speed errors keep integrating, and P tracks that growth."),
+])
 ui.in_practice("Every phone and car navigation system fuses GNSS with inertial (and often wheel-speed) sensors "
                "using Kalman-type filters. The same structure runs drone autopilots and AR/VR headset tracking.")
 
-with st.expander("Code: the EKF model functions"):
+with st.expander("Code: the EKF model functions (from `ssp/sims/vehicle.py`)"):
     ui.source(veh._f, veh._F, veh.simulate_vehicle)

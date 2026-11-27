@@ -8,9 +8,22 @@ from ssp import ui
 from ssp.core import finance, hmm
 from ssp.sims import market as mk
 
-ui.header("Domain demo · Markets", "Regimes, volatility and hedge ratios",
-          "Prices are noisy observations of hidden things: the market's mood, its current risk, and how two "
-          "assets move together. Can we estimate them as they change?")
+ui.lab_intro(
+    "markets",
+    goal="Estimate three hidden quantities from prices: the market's regime (calm or turbulent), its current "
+         "volatility, and a drifting relationship between two assets. Data is simulated so you can check each "
+         "estimate against the truth; you can also upload real prices.",
+    on_screen=[
+        "**Regimes (HMM):** price coloured by decoded regime; filtered vs smoothed probability of the turbulent "
+        "regime (Theory §2)",
+        "**Volatility (GARCH by MLE):** returns with a ±2σ band, fitted vs true volatility, forecasts, and the "
+        "autocorrelation evidence for volatility clustering (Theory §3)",
+        "**Hedge ratio (Kalman):** a drifting coefficient tracked by a Kalman filter vs a rolling regression, plus "
+        "the spread's z-score (Theory §4)",
+    ],
+    start_here="In the Regimes tab, compare the orange (filtered, knowable that day) and violet (smoothed, "
+               "hindsight) curves at the start of a shaded turbulent period. Which one switches first?",
+)
 st.caption("For learning statistical estimation only. Nothing on this page is investment advice, and none of "
            "these models predicts prices.")
 
@@ -19,7 +32,8 @@ t_reg, t_vol, t_hedge = st.tabs(["Regimes (HMM)", "Volatility (GARCH by MLE)", "
 
 def _data_source(key: str):
     """Synthetic regime data by default; optional CSV upload of daily prices."""
-    src = st.radio("Data", ["Simulated (truth known)", "Upload a CSV of daily prices"], key=f"{key}_src")
+    src = st.radio("Data", ["Simulated (truth known)", "Upload a CSV of daily prices"], key=f"{key}_src",
+                   help="Simulated data has a known truth to compare with; uploaded prices don't.")
     if src.startswith("Upload"):
         up = st.file_uploader("CSV with a Date column and a Close / Adj Close / Price column", type="csv",
                               key=f"{key}_up")
@@ -36,24 +50,27 @@ def _data_source(key: str):
 with t_reg:
     st.markdown(
         r"""
-**Model:** daily returns come from one of $K$ hidden regimes, each with its own mean and volatility, and the
-regime follows a Markov chain (Hamilton's regime-switching model). Baum–Welch learns everything from the returns;
-then we ask two different questions:
-**filtered** $P(\text{regime}_t\mid r_{1:t})$, which you could have known *on that day*, and
-**smoothed** $P(\text{regime}_t\mid r_{1:T})$, which is only available with hindsight.
+**The situation.** Daily returns come from hidden **regimes** with different average return and volatility,
+switching like a Markov chain. A Gaussian HMM learns the regimes from the returns alone (Baum–Welch), then
+reports two probabilities: **filtered** (what was knowable on that day) and **smoothed** (hindsight). The top
+plot colours the price by the decoded (Viterbi) regime; the shaded area in the bottom plot is the true turbulent
+regime.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
         data = _data_source("reg")
         if data == "sim":
-            K_true = st.radio("True number of regimes", [2, 3], horizontal=True)
-            stay = st.slider("Regime persistence (P stay per day)", 0.9, 0.998, 0.985, 0.001, format="%.3f")
-            T = st.slider("Trading days", 500, 5000, 2500, 250)
+            K_true = st.radio("True number of regimes", [2, 3], horizontal=True,
+                              help="How many regimes the simulator really uses.")
+            stay = st.slider("Regime persistence (P stay per day)", 0.9, 0.998, 0.985, 0.001, format="%.3f",
+                             help="Daily probability of staying in the same regime. 0.985 ≈ 67-day regimes.")
+            T = st.slider("Trading days", 500, 5000, 2500, 250, help="Length of the history (~250 per year).")
             seed = st.number_input("Random seed", 0, 9999, 2, key="reg_seed")
             sim = mk.regime_returns(T, K_true, stay, np.random.default_rng(int(seed)))
             data = {"r": sim["r"], "dates": np.arange(T), "truth": sim}
-        K = st.radio("Regimes in the fitted model", [2, 3], horizontal=True)
+        K = st.radio("Regimes in the fitted model", [2, 3], horizontal=True,
+                     help="How many regimes the HMM looks for. It may differ from the truth, as it would with real data.")
     if data is not None:
         r = data["r"]
 
@@ -106,9 +123,25 @@ then we ask two different questions:
         ui.takeaway("Volatility regimes are easy to detect because variance shows up immediately in |returns|. "
                     "Mean-return differences are tiny next to daily noise, so the model can tell you *how risky* "
                     "the market is now far better than *which way* it will go.")
-        ui.break_it("Compare the two probability curves: the smoothed one switches *before* the filtered one could "
-                    "have. A backtest that trades on smoothed (or Viterbi) regimes is using the future, which is the "
-                    "classic look-ahead bias. Only the filtered curve is honest.")
+        ui.controls([
+            ("True number of regimes", "–", "the simulator's truth", "–"),
+            ("Regime persistence", r"$A_{kk}$", "daily P(stay)", "longer, easier-to-detect regimes"),
+            ("Trading days", r"$T$", "history length", "better-estimated parameters"),
+            ("Regimes in the fitted model", r"$K$", "HMM size", "more regimes can split real ones"),
+        ])
+        ui.experiments([
+            ("Defaults: read the agreement and the table.",
+             "Viterbi agrees with the truth ≈ 98%; learned volatilities ≈ 0.7% and 2.2% (true 0.7 and 2.2); expected "
+             "regime length ≈ 65 days.",
+             "Volatility regimes are well separated, so Baum–Welch finds them without labels."),
+            ("Compare the orange and violet curves at regime switches.",
+             "The violet (smoothed) curve switches earlier and more cleanly.",
+             "It uses later returns. Trading on it in a backtest is look-ahead bias; only the orange curve is honest."),
+            ("Set persistence = 0.9 (≈ 10-day regimes).", "Agreement drops to ≈ 87%.",
+             "Short regimes give little evidence before they end, the same lesson as the dice in Level 4."),
+            ("Fit 3 regimes to 2-regime data.", "One true regime gets split into two similar states.",
+             "Model selection matters; with real data you don't know K."),
+        ])
         ui.in_practice("Regime-switching models are used for risk management, volatility targeting, stress "
                        "testing and macro nowcasting (recession probabilities). The filtered probability is the "
                        "number a live system would actually act on.")
@@ -117,30 +150,28 @@ then we ask two different questions:
 with t_vol:
     st.markdown(
         r"""
-Returns themselves are nearly uncorrelated, but their **size** is not: calm days follow calm days and wild days
-follow wild days. GARCH(1,1) models the conditional variance
-
-$$\sigma_t^2 = \omega + \alpha\,\varepsilon_{t-1}^2 + \beta\,\sigma_{t-1}^2,$$
-
-and its parameters are found by **maximum likelihood**: maximise $\sum_t \log\mathcal N(r_t;\mu,\sigma_t^2)$,
-exactly the L1 recipe applied to a recursive model. $\alpha+\beta$ is the *persistence*. Forecasts revert to the
-long-run variance $\omega/(1-\alpha-\beta)$ at that rate.
+**The situation.** Returns are simulated from a GARCH(1,1) model (Theory eq. 3): today's variance depends on
+yesterday's shock (α) and yesterday's variance (β). We then forget the true α, β and recover them by **maximum
+likelihood** (Theory eq. 4), exactly the Level 1 recipe applied to a recursive model. The fitted model gives a
+time-varying volatility and forecasts that decay toward the long-run level.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
         vdata = _data_source("vol")
         if vdata == "sim":
-            a_t = st.slider("True α (reaction to shocks)", 0.0, 0.3, 0.08, 0.01)
-            b_t = st.slider("True β (memory)", 0.5, 0.98, 0.90, 0.01)
+            a_t = st.slider("True α (reaction to shocks)", 0.0, 0.3, 0.08, 0.01,
+                            help="How much a big move today raises tomorrow's variance.")
+            b_t = st.slider("True β (memory)", 0.5, 0.98, 0.90, 0.01,
+                            help="How much of today's variance carries over to tomorrow. α + β must stay below 1.")
             if a_t + b_t >= 0.999:
                 st.warning("α + β must be below 1 for a stationary process; β was reduced.")
                 b_t = 0.998 - a_t
-            Tv = st.slider("Trading days", 500, 5000, 2500, 250, key="vol_T")
+            Tv = st.slider("Trading days", 500, 5000, 2500, 250, key="vol_T", help="History length for the fit.")
             vseed = st.number_input("Random seed", 0, 9999, 4, key="vol_seed")
             rv, s2_true = finance.garch11_simulate(Tv, 0.03, 0.02, a_t, b_t, np.random.default_rng(int(vseed)))
             vdata = {"r": rv, "dates": np.arange(Tv), "truth": {"sigma2": s2_true, "alpha": a_t, "beta": b_t}}
-        horizon = st.slider("Forecast horizon (days)", 10, 250, 60)
+        horizon = st.slider("Forecast horizon (days)", 10, 250, 60, help="How far ahead to forecast volatility.")
     if vdata is not None:
         rv = vdata["r"]
 
@@ -186,33 +217,48 @@ long-run variance $\omega/(1-\alpha-\beta)$ at that rate.
         ui.takeaway("The MLE recovers α and β from a few thousand days. The fitted band widens right after big "
                     "moves and decays slowly: that is volatility clustering, and it's why risk models use a "
                     "conditional σₜ rather than one long-run number.")
-        ui.break_it("Set α = 0 (no clustering): squared returns stop being autocorrelated and β becomes poorly "
-                    "determined. The likelihood surface is flat in β, which is the CRLB idea from L1 again: no "
-                    "information, no precision.")
+        ui.controls([
+            ("True α", r"$\alpha$", "reaction to shocks", "spikier volatility"),
+            ("True β", r"$\beta$", "volatility memory", "longer calm and turbulent spells"),
+            ("Trading days", "–", "fit sample size", "more precise estimates (as in Level 1)"),
+            ("Forecast horizon", r"$h$", "days ahead", "the forecast approaches the long-run level"),
+        ])
+        ui.experiments([
+            ("Defaults: compare 'fitted' and 'true' in the table.", "α ≈ 0.07 vs 0.08, β ≈ 0.91 vs 0.90.",
+             "Maximum likelihood on a few thousand days recovers the hidden dynamics."),
+            ("Look at the autocorrelation bars.", "Blue (returns) ≈ 0 at all lags; orange (squared returns) is "
+             "clearly positive.", "Direction is unpredictable, size is predictable: volatility clustering."),
+            ("Set α = 0.", "The orange bars drop to ≈ 0 and the fitted band becomes flat.",
+             "With no shocks feeding variance, there's nothing to cluster. β can't be learned (no information)."),
+            ("Set α = 0.2, β = 0.75.", "Spiky volatility that dies out quickly; the half-life in the table falls.",
+             "Persistence α + β = 0.95: volatility half-life = ln 0.5 / ln 0.95 ≈ 14 days."),
+        ])
 
 # --------------------------------------------------------------------------- hedge ratio
 with t_hedge:
     st.markdown(
         r"""
-Two related assets (say two companies in the same industry) satisfy $y_t \approx \beta_t x_t + \alpha_t$. A
-**hedge ratio** $\beta_t$ says how many units of $x$ offset one unit of $y$, but $\beta_t$ drifts. Treat
-$[\beta_t,\alpha_t]$ as the **hidden state** of a random walk and each day's prices as a measurement with
-$H_t = [x_t,\;1]$. That's a Kalman filter whose observation matrix changes every step. The innovation
-$y_t - H_t\hat\theta_t^-$ is the **spread**, and dividing by $\sqrt{S_t}$ gives its z-score.
+**The situation.** Two related prices follow $y_t \approx \beta_t x_t + \alpha_t$, where the **hedge ratio**
+$\beta_t$ drifts and, at some point, jumps. A Kalman filter treats $[\beta_t, \alpha_t]$ as a hidden random-walk
+state (Theory eq. 5). We compare it with a rolling regression over the last W days. The bottom plot is the filter's
+**innovation z-score**: the surprise each day relative to the filter's own uncertainty.
 """
     )
     c1, c2 = st.columns([1, 2.4])
     with c1:
-        Th = st.slider("Days", 300, 3000, 1200, 100)
-        b0 = st.slider("Initial true β", 0.5, 3.0, 1.5, 0.1)
-        jump = st.slider("Sudden change in β", -1.0, 1.0, 0.5, 0.1)
-        at = st.slider("Change happens at (fraction of sample)", 0.1, 0.9, 0.6, 0.05)
-        svol = st.slider("Spread noise", 0.1, 2.0, 0.5, 0.1)
+        Th = st.slider("Days", 300, 3000, 1200, 100, help="Length of the simulated price history.")
+        b0 = st.slider("Initial true β", 0.5, 3.0, 1.5, 0.1, help="Starting hedge ratio (it also drifts slowly).")
+        jump = st.slider("Sudden change in β", -1.0, 1.0, 0.5, 0.1,
+                         help="A structural break: β jumps by this amount (0 = no break).")
+        at = st.slider("Change happens at (fraction of sample)", 0.1, 0.9, 0.6, 0.05, help="When the break happens.")
+        svol = st.slider("Spread noise", 0.1, 2.0, 0.5, 0.1,
+                         help="Size of the day-to-day deviation of y from βx + α (mean-reverting).")
         use_mle = st.toggle("Fit δ and R by maximum likelihood", True,
                             help="Maximise the likelihood of the innovations (the L1 recipe applied to a filter)")
         delta = st.select_slider("Kalman δ (how fast β may drift)", [1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2], 1e-4,
                                  disabled=use_mle)
-        win = st.slider("Rolling-OLS window (days)", 20, 250, 60, 10)
+        win = st.slider("Rolling-OLS window (days)", 20, 250, 60, 10,
+                        help="Window of the comparison method: a regression over the last W days.")
         hseed = st.number_input("Random seed", 0, 9999, 5, key="h_seed")
     pr = mk.pairs(Th, b0, jump, at, svol, np.random.default_rng(int(hseed)))
 
@@ -259,10 +305,27 @@ $y_t - H_t\hat\theta_t^-$ is the **spread**, and dividing by $\sqrt{S_t}$ gives 
                 "the same trade-off with one interpretable knob (δ = how fast β may drift), reacts to the jump, and "
                 "tells you its uncertainty. It's the L3 random-walk filter with a time-varying H. The jump day appears as "
                 "one huge innovation: the filter's own way of flagging a structural break.")
-    ui.break_it("Turn off the MLE fit and set δ = 1e-7: β is assumed nearly constant, so the filter takes hundreds "
-                "of days to accept the jump. δ = 1e-2: β chases noise. Also watch '|z| > 2': with hand-set noise "
-                "levels the z-scores are miscalibrated, and with the MLE fit they come out close to N(0, 1), which "
-                "is how you check a filter on real data where the truth is unknown.")
+    ui.controls([
+        ("Initial β, Sudden change, Change at", r"$\beta_t$", "the hidden truth", "–"),
+        ("Spread noise", r"$v_t$", "deviation of y from βx + α", "a noisier β estimate"),
+        ("Fit δ and R by MLE", "–", "choose the noise levels by maximum likelihood", "–"),
+        ("Kalman δ", r"$\delta$ (eq. 5)", "how fast β may drift", "faster tracking, noisier β"),
+        ("Rolling-OLS window", r"$W$", "the baseline's memory", "smoother but slower baseline"),
+    ])
+    ui.experiments([
+        ("Defaults: compare the RMSE metrics.", "Kalman (MLE-tuned) ≈ 0.05; rolling OLS (60 days) ≈ 1.0.",
+         "The filter models the drift explicitly and reacts to the jump; the short regression is swamped by noise."),
+        ("Set the rolling window to 250.", "OLS improves to ≈ 0.6 but reacts to the jump months late.",
+         "A long window averages noise but remembers the old β: the window trade-off the filter avoids."),
+        ("Turn off the MLE fit and set δ = 1e-7.", "The Kalman β takes hundreds of days to accept the jump (RMSE ≈ 0.65).",
+         "The filter is told β almost never changes, so it explains the break as noise."),
+        ("Back to MLE; look at the z-score plot.", "One enormous spike (≈ 27) on the break day; '|z| > 2' is well "
+         "under the 4.6% you'd expect.",
+         "Under the Gaussian model the break is a 27σ event. The MLE stretches the noise levels to accommodate it, "
+         "so ordinary days look too calm. Same lesson as Level 1's outliers."),
+        ("Set the sudden change to 0.", "Now '|z| > 2' ≈ 4.5% and the z-scores look like N(0, 1).",
+         "Without the break the model is right, and MLE-tuned innovations are properly calibrated."),
+    ])
     ui.in_practice("Time-varying regressions with Kalman filters are used for dynamic hedging, factor exposures "
                    "(time-varying CAPM β), and statistical arbitrage. The same structure estimates channel taps in "
                    "communications. It's RLS from L2 with explicit process noise.")

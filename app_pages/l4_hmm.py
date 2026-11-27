@@ -7,56 +7,45 @@ from plotly.subplots import make_subplots
 from ssp import ui
 from ssp.core import hmm
 
-ui.header("Level 4", "Hidden Markov models",
-          "The state is discrete and never observed directly. How do we track it, decode it, and learn the model "
-          "without labels?")
-
-st.markdown(
-    r"""
-An HMM is the Level 0 Markov chain with the state **hidden**: each state $k$ emits observations with likelihood
-$b_k(x_t)=p(x_t\mid s_t=k)$. One model answers three different questions:
-
-| Question | Algorithm | Uses data from | Typical use |
-|---|---|---|---|
-| Which state am I in **now**? $P(s_t\mid x_{1:t})$ | **Forward** (filtering) | past only → runs in real time | live VAD, live regime alarm |
-| Which state was I in **then**? $P(s_t\mid x_{1:T})$ | **Forward–backward** (smoothing) | past *and* future | offline labelling, EM |
-| What is the single best **path**? $\arg\max P(s_{1:T}\mid x_{1:T})$ | **Viterbi** | everything | speech recognition, gene finding, decoding |
-| What are $\pi, A, b$? | **Baum–Welch** (EM) | unlabelled data | training |
-
-**Forward recursion:** predict with the chain, then weigh by the evidence and normalise. This is the same
-predict/update loop as the Kalman filter, for a discrete state:
-
-$$\alpha_t(j) \;\propto\; b_j(x_t)\sum_i \alpha_{t-1}(i)\,A_{ij}.$$
-"""
+ui.lab_intro(
+    "l4",
+    goal="Use an HMM to uncover a hidden switching process from its observations alone: first with the model "
+         "known (filtering, smoothing, Viterbi), then learning the model itself from unlabelled data (Baum–Welch).",
+    on_screen=[
+        "**The dishonest casino:** the true hidden die (grey), three different HMM answers about it, and the "
+        "observed sixes below (Theory §1–5)",
+        "**Learning with Baum–Welch:** the likelihood climbing each EM iteration, learned vs true dice and switching "
+        "probabilities, and local optima across random restarts (Theory §6)",
+    ],
+    start_here="In the casino tab, find a grey block (the loaded die in play) and compare how quickly the blue "
+               "(live) and orange (hindsight) curves rise at its start.",
 )
-with st.expander("HMM vs Kalman filter, side by side"):
-    st.markdown(
-        r"""
-| | Kalman filter (L3) | HMM forward (L4) |
-|---|---|---|
-| hidden state | continuous vector, Gaussian belief $\mathcal N(\hat x, P)$ | one of $K$ labels, belief vector $\alpha_t$ |
-| predict | $\hat x^- = F\hat x$, $P^- = FPF^T+Q$ | $\alpha^-_t = \alpha_{t-1}A$ |
-| update | Kalman gain on the innovation | multiply by $b_k(x_t)$, normalise |
-| smoother | RTS | backward pass |
-| best path | the smoother mean | Viterbi |
-| when nothing is Gaussian or discrete | → particle filter (Level 5) | → particle filter (Level 5) |
-"""
-    )
 
 t_casino, t_learn, t_code = st.tabs(["The dishonest casino", "Learning with Baum–Welch", "Code"])
 
 # --------------------------------------------------------------------------- casino
 with t_casino:
     st.markdown(
-        "A casino secretly swaps a **fair die** for a **loaded die** that favours 6, then swaps back. You only see "
-        "the rolls. When was the loaded die in play?"
+        r"""
+**The situation.** A casino secretly swaps a **fair die** for a **loaded die** that favours 6, then swaps back. You
+see only the rolls. Here the HMM is given the *true* model, and we compare its three answers (Theory §2):
+
+* **blue, forward** $P(\text{loaded} \mid \text{rolls so far})$: what a live observer could know
+* **orange, smoothed** $P(\text{loaded} \mid \text{all rolls})$: what's known in hindsight
+* **dotted aqua, Viterbi:** the single most probable sequence of dice
+"""
     )
     c1, c2 = st.columns([1, 2.3])
     with c1:
-        T = st.slider("Number of rolls", 100, 5000, 2000, 100)
-        p_fl = st.slider("P(switch fair → loaded) per roll", 0.001, 0.2, 0.02, 0.001, format="%.3f")
-        p_lf = st.slider("P(switch loaded → fair) per roll", 0.01, 0.5, 0.10, 0.01)
-        p6 = st.slider("Loaded die: P(6)", 0.2, 0.9, 0.5, 0.05)
+        T = st.slider("Number of rolls", 100, 5000, 2000, 100,
+                      help="Length of the game. The plot shows the first 600; accuracies use all rolls.")
+        p_fl = st.slider("P(switch fair → loaded) per roll", 0.001, 0.2, 0.02, 0.001, format="%.3f",
+                         help="A₁₂. Fair spells last 1/this rolls on average (0.02 → 50 rolls).")
+        p_lf = st.slider("P(switch loaded → fair) per roll", 0.01, 0.5, 0.10, 0.01,
+                         help="A₂₁. Loaded spells last 1/this rolls on average (0.1 → 10 rolls).")
+        p6 = st.slider("Loaded die: P(6)", 0.2, 0.9, 0.5, 0.05,
+                       help="How strongly the loaded die favours 6 (a fair die gives 1/6 ≈ 0.17). The other faces "
+                            "share the rest.")
         seed = st.number_input("Random seed", 0, 9999, 1, key="cas_seed")
     s, rolls, true = hmm.sample_casino(T, p_fl, p_lf, p6, np.random.default_rng(int(seed)))
     logB = true.loglik_matrix(rolls)
@@ -91,9 +80,27 @@ with t_casino:
                 "smoother uses later rolls and snaps to the switch points, so it's more accurate but only available "
                 "after the fact. Viterbi gives one consistent story (no single-roll flips), which is what you want "
                 "when the output is a label sequence.")
-    ui.break_it("Set P(6) on the loaded die to 0.25: the two dice look almost the same and no algorithm can "
-                "separate them. Information in the emissions limits everything. Then make switching very frequent "
-                "(0.2 / 0.5): the 'sticky' prior disappears and decoding collapses toward roll-by-roll guessing.")
+    ui.controls([
+        ("Number of rolls", r"$T$", "sequence length", "more data; accuracies stabilise"),
+        ("P(switch fair → loaded)", r"$A_{12}$", "how often cheating starts", "more, shorter loaded spells"),
+        ("P(switch loaded → fair)", r"$A_{21}$", "how quickly cheating stops", "shorter loaded spells, harder to catch"),
+        ("Loaded die: P(6)", r"$b_{\text{loaded}}(6)$", "how different the dice are", "easier detection"),
+    ])
+    ui.experiments([
+        ("Defaults: compare the four metrics.",
+         "Forward ≈ 87%, smoothed ≈ 92%, Viterbi ≈ 91%. The die is loaded 20% of the time.",
+         "Hindsight helps: rolls after a switch confirm it. The forward curve needs a few sixes before it believes."),
+        ("Count the jumps in the blue curve vs the dotted Viterbi steps.",
+         "Thresholding the forward curve at 0.5 would flip about 150 times; Viterbi switches about 20 times "
+         "(the truth: 56).",
+         "Viterbi scores whole sequences, so it won't flip for one lucky six. Short loaded spells get missed."),
+        ("Set Loaded die P(6) = 0.25.", "Viterbi never calls 'loaded'; accuracy ≈ 80% = 'always say fair'.",
+         "When the dice barely differ, there's too little information per roll. No algorithm can beat that."),
+        ("Set P(6) = 0.8.", "Every method improves; smoothed and Viterbi reach about 96%.",
+         "Each six is now strong evidence, so switches are detected within a roll or two."),
+        ("Set the switching probabilities to 0.2 and 0.5.", "Accuracies fall to ~73%, barely above 'always fair'.",
+         "Spells last 2–5 rolls, too short to accumulate evidence. The 'sticky' prior that makes HMMs work is gone."),
+    ])
     ui.in_practice("Speech recognition (phoneme HMMs, pre-deep-learning and still inside hybrid systems), gene "
                    "finding, part-of-speech tagging, fault diagnosis, regime-switching finance models, and the "
                    "decoding in mobile phones (Viterbi decoding of convolutional codes).")
@@ -102,22 +109,19 @@ with t_casino:
 with t_learn:
     st.markdown(
         r"""
-In reality nobody hands you $A$ and the dice probabilities. **Baum–Welch** (EM) learns them from the rolls alone:
-
-1. **E-step:** with the current guess, run forward–backward to get the expected time in each state
-   ($\gamma_t$) and the expected number of each transition ($\xi_t$).
-2. **M-step:** re-estimate by counting. $A_{ij} = \frac{\sum_t \xi_t(i,j)}{\sum_t\gamma_t(i)}$, and
-   $b_k(m)$ = the expected fraction of time in $k$ that emitted symbol $m$.
-
-Each iteration can only **increase** the likelihood. It can still get stuck in a local optimum, so practitioners
-restart from several initial guesses.
+**The situation.** Now pretend nobody tells you the dice or the switching probabilities. **Baum–Welch** starts
+from a random guess and alternates "estimate where the switches probably were" (E-step) and "re-count the dice
+and switches" (M-step), Theory §6. It uses the rolls generated in the casino tab, so change those settings there.
 """
     )
     c1, c2 = st.columns([1, 2.3])
     with c1:
-        iters = st.slider("EM iterations (max)", 1, 300, 150)
-        init_seed = st.number_input("Initial-guess seed", 0, 9999, 3)
-        n_restarts = st.slider("Random restarts to compare", 1, 12, 8)
+        iters = st.slider("EM iterations (max)", 1, 300, 150,
+                          help="How many E/M rounds to run (it stops early once the likelihood stops improving).")
+        init_seed = st.number_input("Initial-guess seed", 0, 9999, 3,
+                                    help="A different random starting guess for the main run.")
+        n_restarts = st.slider("Random restarts to compare", 1, 12, 8,
+                               help="Extra runs from different random starts; the bottom plot compares where they end.")
         st.caption("Uses the rolls from the casino tab.")
 
     @st.cache_data(show_spinner="Running EM…")
@@ -161,9 +165,21 @@ restart from several initial guesses.
     ui.takeaway("EM can beat the true parameters' likelihood slightly: it fits *this* sample, including its noise. "
                 "The state labels are arbitrary ('label switching'), so we name the states after the fact by "
                 "looking at what they emit.")
-    ui.break_it("Drop to 300–600 rolls: the emissions are still roughly right, but the switching probabilities "
-                "can be off several-fold, because there are only a handful of loaded runs to count. EM needs enough "
-                "*events*, not just enough samples.")
+    ui.controls([
+        ("EM iterations", "–", "E-step + M-step rounds", "the likelihood curve extends (it never goes down)"),
+        ("Initial-guess seed", "–", "random starting parameters", "may end in a different local optimum"),
+        ("Random restarts", "–", "independent EM runs", "more chances to find the best optimum"),
+    ])
+    ui.experiments([
+        ("Set EM iterations to 1, then 5, 20, 150.", "The learned 'loaded' bars move from random toward the grey truth.",
+         "Each iteration re-counts the dice using better soft labels."),
+        ("Look at the restarts plot.", "Most restarts end at almost the same likelihood; occasionally one is lower.",
+         "EM finds a local optimum. Keep the best of several restarts."),
+        ("In the casino tab, set Number of rolls = 300, then come back.",
+         "The dice are still learned roughly, but the switching probabilities can be several times off.",
+         "With few loaded spells there are few switch *events* to count. EM needs events, not just samples."),
+    ])
 
 with t_code:
+    st.markdown("The exact functions this page runs (from `ssp/core/hmm.py`):")
     ui.source(hmm.forward, hmm.backward, hmm.posteriors, hmm.viterbi, hmm.baum_welch)

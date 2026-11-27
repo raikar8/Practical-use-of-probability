@@ -97,6 +97,96 @@ def header(level: str, title: str, question: str) -> None:
     st.markdown(f"*{question}*")
 
 
+# ---------------------------------------------------------------------------
+# Theory / Lab structure
+# ---------------------------------------------------------------------------
+# key: (section label, short title, theory page, lab page)
+TOPICS = {
+    "l0": ("Level 0", "Probability toolkit", "app_pages/theory/l0_probability.py", "app_pages/l0_probability.py"),
+    "l1": ("Level 1", "Estimation: MLE, MAP, CRLB", "app_pages/theory/l1_estimation.py", "app_pages/l1_estimation.py"),
+    "l2": ("Level 2", "Adaptive filters: LMS, NLMS, RLS", "app_pages/theory/l2_adaptive.py", "app_pages/l2_adaptive.py"),
+    "l3": ("Level 3", "State-space models & the Kalman filter", "app_pages/theory/l3_kalman.py",
+           "app_pages/l3_kalman.py"),
+    "l4": ("Level 4", "Hidden Markov models", "app_pages/theory/l4_hmm.py", "app_pages/l4_hmm.py"),
+    "l5": ("Level 5", "Particle filters, IMM, change points", "app_pages/theory/l5_advanced.py",
+           "app_pages/l5_advanced.py"),
+    "vehicle": ("Domain", "Car GPS + IMU fusion", "app_pages/theory/d_vehicle.py", "app_pages/d_vehicle.py"),
+    "netcode": ("Domain", "Online game lag prediction", "app_pages/theory/d_netcode.py", "app_pages/d_netcode.py"),
+    "speech": ("Domain", "Voice activity detection", "app_pages/theory/d_speech.py", "app_pages/d_speech.py"),
+    "enhance": ("Domain", "Noise suppression & hearing aids", "app_pages/theory/d_enhance.py",
+                "app_pages/d_enhance.py"),
+    "markets": ("Domain", "Market regimes & volatility", "app_pages/theory/d_markets.py", "app_pages/d_markets.py"),
+    "sports": ("Domain", "Sports ratings & win probability", "app_pages/theory/d_sports.py", "app_pages/d_sports.py"),
+}
+
+
+def eq(latex: str, number: int | str | None = None) -> None:
+    """A display equation, optionally numbered so the text and the Lab can refer to it."""
+    # KaTeX's \tag is placed relative to a shrink-wrapped box in st.latex and overlaps wide equations,
+    # so the number is set inline, a fixed gap to the right of the equation.
+    st.latex(latex + (rf" \qquad\qquad \text{{({number})}}" if number is not None else ""))
+
+
+def theory_header(key: str, why: str) -> None:
+    level, title, _, lab = TOPICS[key]
+    st.caption(f"{level} · Theory")
+    st.title(title)
+    st.markdown(why)
+    st.page_link(lab, label="Skip to the Lab", icon=":material/science:")
+
+
+def section(title: str) -> None:
+    st.divider()
+    st.header(title)
+
+
+def lab_intro(key: str, goal: str, on_screen: list[str], start_here: str) -> None:
+    """Prologue for every Lab: what we're doing, what's on screen, where to begin."""
+    level, title, theory, _ = TOPICS[key]
+    st.caption(f"{level} · Lab")
+    st.title(title)
+    with st.container(border=True):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(f"**What this lab is for.** {goal}")
+            st.markdown("**What you're looking at**\n" + "\n".join(f"- {x}" for x in on_screen))
+            st.markdown(f"**Start here.** {start_here}")
+        with c2:
+            st.page_link(theory, label="Read the theory first", icon=":material/menu_book:")
+            st.caption("Every control has a **?** tooltip. 'Controls explained' and 'Guided experiments' are below "
+                       "each panel.")
+
+
+def controls(rows: list[tuple[str, str, str, str]], title: str = "Controls explained") -> None:
+    """rows: (control, symbol in the theory, what it means, what happens when you increase it)."""
+    with st.expander(title, icon=":material/tune:"):
+        md = ["| Control | Symbol | What it means | Turn it up and… |", "|---|---|---|---|"]
+        md += [f"| {a} | {b} | {c} | {d} |" for a, b, c, d in rows]
+        st.markdown("\n".join(md))
+
+
+def experiments(items: list[tuple[str, str, str]], title: str = "Guided experiments") -> None:
+    """items: (what to do, what to watch, why it happens)."""
+    with st.container(border=True):
+        st.markdown(f"**:material/science: {title}**")
+        for i, (do, watch, why) in enumerate(items, 1):
+            st.markdown(f"**{i}. {do}**  \n*Watch:* {watch}  \n*Why:* {why}")
+
+
+def check(items: list[tuple[str, str]]) -> None:
+    """Self-check questions with hidden answers."""
+    for q, a in items:
+        with st.expander(f"❓ {q}"):
+            st.markdown(a)
+
+
+def lab_map(key: str, rows: list[tuple[str, str]]) -> None:
+    """How the theory shows up in the Lab: (thing in the Lab, what it is in the theory)."""
+    md = ["| In the Lab | In the theory |", "|---|---|"] + [f"| {a} | {b} |" for a, b in rows]
+    st.markdown("\n".join(md))
+    st.page_link(TOPICS[key][3], label="Open the Lab", icon=":material/science:")
+
+
 def real_audio(key: str, max_seconds: float = 60.0):
     """Record from the browser microphone or upload a WAV. Returns mono float audio at 16 kHz, or None."""
     from ssp.sims.speech import load_wav

@@ -7,7 +7,14 @@ Kalman filters, and then applies them to real systems that still use them today.
   exact source it runs.
 * Every algorithm is **checked by a test**, either against theory (CRLB, χ² consistency, Wiener solution) or
   against a reference library (filterpy).
-* Every page follows the same pattern: **Intuition & math → Playground → Break it → Code**.
+* Every topic has two pages, meant to be read in order:
+  * **Theory**: what problem we're solving and why, the model and its numbered equations, worked numeric
+    examples, small figures, common pitfalls, check-yourself questions, and a table mapping each idea to what
+    you'll see in the Lab.
+  * **Lab**: a short prologue (what the lab is for, what each plot shows, where to start), a tooltip on every
+    control, a "Controls explained" table (symbol, meaning, what turning it up does), and **guided experiments**
+    with the numbers you should see, then a **Code** tab.
+* Start at **Overview & how to use**; **Notation & glossary** collects every symbol in one place.
 
 ## Run it
 
@@ -23,7 +30,7 @@ Run the tests with `pytest`. This includes a smoke test that renders every page 
 
 ## What's inside
 
-| Page | Concepts | Try this |
+| Topic (Theory + Lab) | Concepts | Try this |
 |---|---|---|
 | **L0 · Probability toolkit** | Beta–Bernoulli updating, Bayes' rule and base rates, Markov chains, Gaussian conditioning | A confident wrong prior vs. the data |
 | **L1 · MLE, MAP, CRLB** | Likelihood, MLE / MAP / MMSE, Monte Carlo vs. CRLB, frequency estimation and the threshold effect, robust estimation | MAP beating the CRLB, and why that's allowed |
@@ -42,7 +49,8 @@ Run the tests with `pytest`. This includes a smoke test that renders every page 
 
 ```
 streamlit_app.py        entry point (navigation)
-app_pages/              one file per page
+app_pages/              Lab pages (one per topic), home, glossary
+app_pages/theory/       Theory pages (one per topic)
 ssp/core/               from-scratch algorithms
     probability.py      Bayes updates, Markov chains
     estimation.py       MLE, MAP, MMSE, CRLB, frequency MLE
@@ -56,7 +64,7 @@ ssp/core/               from-scratch algorithms
 ssp/sims/               domain simulators (vehicle, netcode, speech, market, enhance, feedback, sports)
 cpp/                    header-only C++17 Kalman filter, Viterbi decoder, feedback canceller + exercises
 ssp/ui.py               shared plotting / layout helpers
-tests/                  correctness proofs + page smoke tests
+tests/                  correctness proofs, page smoke tests, and a lint that catches KaTeX-breaking multi-line $$
 ```
 
 ## C++ ports
