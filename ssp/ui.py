@@ -28,18 +28,26 @@ def rgba(hex_color: str, alpha: float) -> str:
 
 
 def style(fig: go.Figure, title: str | None = None, x: str | None = None, y: str | None = None,
-          height: int = 380, legend: bool = True) -> go.Figure:
-    """Consistent layout: title top-left, legend in its own band under the title, recessive grid."""
+          height: int = 380, legend: bool = True, legend_below: bool = False) -> go.Figure:
+    """Consistent layout: title top-left, legend in its own band under the title, recessive grid.
+
+    legend_below=True puts the legend under the plot instead (use it for subplots with their own titles).
+    """
     named = sum(1 for tr in fig.data if tr.name and tr.showlegend is not False)
     legend_h = 22 * max(1, -(-named // 4)) + 4 if legend else 0      # ~4 entries per legend row
-    top = (40 if title else 10) + legend_h
+    top = (40 if title else 10) + (0 if legend_below else legend_h)
+    if legend_below:
+        top += 24                                                     # room for subplot titles
     bottom = max(10, fig.layout.margin.b or 0)     # keep room for animation controls
+    if legend_below and legend:
+        bottom = max(bottom, 50 + legend_h)
     fig.update_layout(
         title=dict(text=title, x=0, xanchor="left", y=1, yref="container", yanchor="top",
                    pad=dict(t=12), font=dict(size=15)) if title else None,
         height=height + legend_h, margin=dict(l=10, r=10, t=top, b=bottom),
         hovermode="x unified", showlegend=legend,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.14, xanchor="left", x=0) if legend_below else
+        dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
     )
     fig.update_xaxes(title=x, showgrid=True, gridwidth=1, zeroline=False)
     fig.update_yaxes(title=y, showgrid=True, gridwidth=1, zeroline=False)
@@ -70,24 +78,58 @@ def source(*objs) -> None:
         st.code(inspect.getsource(obj), language="python")
 
 
-def play_controls(fig: go.Figure, frame_names: list[str], duration_ms: int, label: str = "t = ") -> go.Figure:
-    """Play / pause buttons and a scrub slider for a Plotly animation (runs in the browser)."""
+def play_controls(fig: go.Figure, frame_names: list[str], duration_ms: int, label: str = "t = ",
+                  start_at_end: bool = False) -> go.Figure:
+    """Play / pause buttons and a scrub slider for a Plotly animation (runs in the browser).
+
+    start_at_end=True shows the final frame first (the trained result) and ▶ replays training from the start.
+    The caller must then pass the last frame's data as the figure's initial data.
+    """
     anim = dict(frame=dict(duration=duration_ms, redraw=False), transition=dict(duration=0), fromcurrent=True,
                 mode="immediate")
+    play_args = [None, anim]
+    if start_at_end:
+        play_args = [list(frame_names), dict(anim, fromcurrent=False)]
     fig.update_layout(
         margin=dict(b=110),
         updatemenus=[dict(type="buttons", direction="left", x=0, y=-0.13, xanchor="left", yanchor="top",
                           pad=dict(r=8, t=0), showactive=False,
-                          buttons=[dict(label="▶ Play", method="animate", args=[None, anim]),
+                          buttons=[dict(label="▶ Play", method="animate", args=play_args),
                                    dict(label="❚❚ Pause", method="animate",
                                         args=[[None], dict(frame=dict(duration=0, redraw=False),
                                                            mode="immediate", transition=dict(duration=0))])])],
-        sliders=[dict(active=0, x=0.16, len=0.84, y=-0.10, yanchor="top", pad=dict(t=0, b=0),
+        sliders=[dict(active=len(frame_names) - 1 if start_at_end else 0, x=0.16, len=0.84, y=-0.10,
+                      yanchor="top", pad=dict(t=0, b=0),
                       currentvalue=dict(prefix=label, visible=True, xanchor="right"),
                       steps=[dict(label=nm, method="animate",
                                   args=[[nm], dict(frame=dict(duration=0, redraw=False), mode="immediate",
                                                    transition=dict(duration=0))]) for nm in frame_names])],
     )
+    return fig
+
+
+def image_grid(imgs, ncols: int, side: int = 8, title: str | None = None, height: int = 300,
+               labels: list[str] | None = None) -> go.Figure:
+    """Tile small grey-scale images (values in [0, 1], ink = 1) into one heatmap figure."""
+    import numpy as np
+    imgs = np.asarray(imgs).reshape(-1, side, side)
+    n = len(imgs)
+    nrows = -(-n // ncols)
+    pad = 1
+    canvas = np.full((nrows * (side + pad) - pad, ncols * (side + pad) - pad), np.nan)
+    for i, im in enumerate(imgs):
+        r, c = divmod(i, ncols)
+        canvas[r * (side + pad):r * (side + pad) + side, c * (side + pad):c * (side + pad) + side] = np.clip(im, 0, 1)
+    fig = go.Figure(go.Heatmap(z=canvas, colorscale="Greys", zmin=0, zmax=1, showscale=False, hoverinfo="skip"))
+    fig.update_yaxes(autorange="reversed", visible=False, scaleanchor="x")
+    fig.update_xaxes(visible=False)
+    if labels:
+        for i, lab in enumerate(labels):
+            r, c = divmod(i, ncols)
+            fig.add_annotation(x=c * (side + pad) + side / 2 - 0.5, y=r * (side + pad) - 0.9, text=lab, showarrow=False,
+                               font=dict(size=10))
+    fig.update_layout(height=height, margin=dict(l=0, r=0, t=36 if title else 4, b=0), plot_bgcolor="white",
+                      title=dict(text=title, x=0, font=dict(size=14)) if title else None)
     return fig
 
 
@@ -117,6 +159,22 @@ TOPICS = {
                 "app_pages/d_enhance.py"),
     "markets": ("Domain", "Market regimes & volatility", "app_pages/theory/d_markets.py", "app_pages/d_markets.py"),
     "sports": ("Domain", "Sports ratings & win probability", "app_pages/theory/d_sports.py", "app_pages/d_sports.py"),
+    # ---- Part II: probabilistic machine learning
+    "l6": ("Level 6", "Graphical models & message passing", "app_pages/theory/l6_graphical.py",
+           "app_pages/l6_graphical.py"),
+    "l7": ("Level 7", "Hidden variables & EM: mixtures", "app_pages/theory/l7_em.py", "app_pages/l7_em.py"),
+    "l8": ("Level 8", "Approximate inference: MCMC & VI", "app_pages/theory/l8_approx.py", "app_pages/l8_approx.py"),
+    "l9": ("Level 9", "Gaussian processes & Bayesian optimisation", "app_pages/theory/l9_gp.py",
+           "app_pages/l9_gp.py"),
+    "bandits": ("Domain", "A/B tests & recommendations (bandits)", "app_pages/theory/d_bandits.py",
+                "app_pages/d_bandits.py"),
+    # ---- Part III: deep generative models
+    "l10": ("Level 10", "Generative models from zero", "app_pages/theory/l10_generative.py",
+            "app_pages/l10_generative.py"),
+    "l11": ("Level 11", "Variational autoencoders (VAE)", "app_pages/theory/l11_vae.py", "app_pages/l11_vae.py"),
+    "l12": ("Level 12", "Generative adversarial networks (GAN)", "app_pages/theory/l12_gan.py",
+            "app_pages/l12_gan.py"),
+    "l13": ("Level 13", "Diffusion models", "app_pages/theory/l13_diffusion.py", "app_pages/l13_diffusion.py"),
 }
 
 

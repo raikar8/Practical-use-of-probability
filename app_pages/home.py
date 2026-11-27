@@ -10,7 +10,17 @@ st.markdown(
     """
 This app is for someone who wants to understand **how machines make good guesses from noisy data**: how a phone
 knows where it is in a tunnel, how a hearing aid separates your voice from traffic, how a game draws another
-player who is 100 ms away. It assumes school algebra and a little calculus. Everything else is built up from zero.
+player who is 100 ms away, and how today's AI generates images and speech. It assumes school algebra and a
+little calculus. Everything else is built up from zero.
+
+It has three parts:
+
+* **Part I · Estimation and tracking** (Levels 0–5 + six demos): Bayes' rule, MLE/MAP, adaptive filters, Kalman
+  filters, HMMs, particle filters.
+* **Part II · Probabilistic machine learning** (Levels 6–9 + a demo): graphical models, EM, MCMC and variational
+  inference, Gaussian processes, bandits.
+* **Part III · Deep generative models** (Levels 10–13): neural networks from scratch, then VAEs, GANs and
+  diffusion models.
 """
 )
 
@@ -51,6 +61,10 @@ Almost every algorithm in this app is that loop. They differ in **what the belie
 * a Gaussian over a state vector: the Kalman filter (Level 3)
 * probabilities over a few discrete situations: hidden Markov models (Level 4)
 * a cloud of samples, when nothing is Gaussian: particle filters (Level 5)
+* messages flowing through a graph of many variables (Level 6), soft labels for hidden groups (Level 7)
+* samples or a fitted Gaussian when the posterior has no formula: MCMC and variational inference (Level 8)
+* a distribution over whole functions: Gaussian processes (Level 9)
+* a **learned** prior over images or sounds, encoded in a neural network: VAEs, GANs, diffusion (Levels 10–13)
 """
 )
 
@@ -81,15 +95,15 @@ with c2:
 **Callout boxes**
 
 * 💡 **Takeaway**: the one idea to remember
-* 🔧 **Break it**: a deliberate mistake to learn from
 * 🏭 **In practice**: where this runs in real products today
 """
     )
 
 st.header("Suggested path")
 st.markdown(
-    "Go through Levels 0 → 5 in order; each one uses ideas from the one before. The **demos** each need only "
-    "some of the levels, so you can jump to a demo as soon as you've done its prerequisites:"
+    "Go through the levels in order; each one uses ideas from the one before. The **demos** each need only "
+    "some of the levels, so you can jump to a demo as soon as you've done its prerequisites. If you're mainly "
+    "here for generative AI, the shortest path is L0 → L1 → L8 → L10 → L11 → L12 → L13."
 )
 st.graphviz_chart(
     """
@@ -102,8 +116,17 @@ digraph {
   node [fillcolor="#fdf0e8", color="#f47230"];
   V [label="Car GPS+IMU"]; N [label="Game lag"]; S [label="Voice activity"];
   E [label="Noise suppression\\n& hearing aids"]; M [label="Markets"]; SP [label="Sports"];
+  node [fillcolor="#eef4fc", color="#257de0"];
+  L6 [label="L6 Graphical models"]; L7 [label="L7 EM & mixtures"]; L8 [label="L8 MCMC & VI"];
+  L9 [label="L9 Gaussian processes"];
+  node [fillcolor="#e6f7f2", color="#00b894"];
+  L10 [label="L10 Generative\nmodels from zero"]; L11 [label="L11 VAE"]; L12 [label="L12 GAN"];
+  L13 [label="L13 Diffusion"];
+  node [fillcolor="#fdf0e8", color="#f47230"]; BD [label="A/B tests\n(bandits)"];
   L0 -> L1 -> L2 -> L3 -> L4 -> L5;
   L3 -> V; L3 -> N; L4 -> S; L1 -> E; L2 -> E; L4 -> M; L3 -> M; L3 -> SP; L1 -> SP;
+  L4 -> L6; L3 -> L6; L4 -> L7; L1 -> L8; L7 -> L8; L3 -> L9; L8 -> L9; L0 -> BD;
+  L1 -> L10; L8 -> L11; L10 -> L11 -> L12 -> L13; L1 -> L13;
 }
 """
 )

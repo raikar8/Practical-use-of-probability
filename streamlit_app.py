@@ -16,7 +16,10 @@ ICONS = {"l0": ":material/casino:", "l1": ":material/target:", "l2": ":material/
          "l3": ":material/timeline:", "l4": ":material/hub:", "l5": ":material/scatter_plot:",
          "vehicle": ":material/directions_car:", "netcode": ":material/sports_esports:",
          "speech": ":material/graphic_eq:", "enhance": ":material/hearing:",
-         "markets": ":material/candlestick_chart:", "sports": ":material/sports_soccer:"}
+         "markets": ":material/candlestick_chart:", "sports": ":material/sports_soccer:",
+         "l6": ":material/account_tree:", "l7": ":material/bubble_chart:", "l8": ":material/blur_on:",
+         "l9": ":material/show_chart:", "bandits": ":material/ads_click:", "l10": ":material/auto_awesome:",
+         "l11": ":material/compress:", "l12": ":material/swords:", "l13": ":material/grain:"}
 
 pages = {
     "Start here": [

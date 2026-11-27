@@ -108,7 +108,7 @@ the y-axis frequency, and the colour is power.
             if ramp:
                 for i in range(1, 4):
                     fig.add_vline(x=5.0, line=dict(color="white", dash="dot"), row=i, col=1)
-            ui.show(ui.style(fig, None, height=620, legend=False))
+            ui.show(ui.style(fig, None, height=620, legend=False, legend_below=True))
             if synthetic:
                 res = {"input": sc["noisy"], "output": r["out"]}
                 tbl = pd.DataFrame({

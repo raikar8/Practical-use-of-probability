@@ -1,7 +1,13 @@
 # Practical Use of Probability
 
-An interactive Streamlit lab for **statistical signal processing**. It starts with Bayes' rule, works up to
-Kalman filters, and then applies them to real systems that still use them today.
+An interactive Streamlit course in **statistical signal processing and probabilistic machine learning**. It
+starts with Bayes' rule, works up to Kalman filters and HMMs, applies them to real systems that still use them
+today, then continues through graphical models, EM, MCMC, variational inference and Gaussian processes to
+**VAEs, GANs and diffusion models**, built from scratch.
+
+* **Part I · Estimation and tracking:** Levels 0–5 and six domain demos
+* **Part II · Probabilistic machine learning:** Levels 6–9 and a bandit (A/B-testing) demo
+* **Part III · Deep generative models:** Levels 10–13, assuming no prior knowledge of neural networks
 
 * Every algorithm is written **from scratch in NumPy** (`ssp/core/`). Each page has a **Code** tab showing the
   exact source it runs.
@@ -44,6 +50,15 @@ Run the tests with `pytest`. This includes a smoke test that renders every page 
 | **Noise suppression & hearing aids** | Spectral subtraction / Wiener / MMSE-STSA / MMSE-LSA gains, decision-directed SNR, SPP-MMSE noise tracking; hearing-aid feedback loop with fixed vs adaptive NLMS canceller, MSG over time | ML ξ → musical noise; μ vs closed-loop bias |
 | **Sports ratings & win probability** | Elo vs Kalman (Glicko-style) ratings with a strong newcomer; live football win/draw/loss from Poisson goals with Gamma-learned rates, red cards, calibration check | Kalman q too small; over-eager in-game learning |
 | **Online game lag prediction** | Snap vs. extrapolation vs. interpolation vs. Kalman prediction under ping, jitter and loss (animated, 60 Hz) | Noisy snapshots break naive extrapolation |
+| **L6 · Graphical models** | Bayesian networks and explaining away; sum-product = forward–backward, max-product = Viterbi, Gaussian BP = Kalman smoother | Add the earthquake and watch the burglary explanation vanish |
+| **L7 · Hidden variables & EM** | Gaussian mixtures by EM (animated), local optima, BIC for K, mixture of experts | Five clusters with random starts |
+| **L8 · MCMC & VI** | Metropolis, Gibbs, HMC with equal compute budgets; Laplace vs reverse-KL VI vs moment matching on exact 2-D posteriors | VI on two peaks: which one it picks depends on the start |
+| **L9 · GPs & Bayesian optimisation** | Bayesian regression and the evidence, GP kernels and type-II ML, Bayesian optimisation of an expensive tuning curve | Too long a length-scale stops BO exploring |
+| **A/B tests & recommendations** | Beta posteriors, A/B-then-commit vs ε-greedy vs UCB1 vs Thompson sampling, regret | How often a 500-per-arm A/B test picks the wrong winner |
+| **L10 · Generative models from zero** | Noise → data by change of variables, an MLP trained by hand-written backprop, a 1-D normalising flow by maximum likelihood, two-sample classifier test | Match a target distribution by hand, then let MLE do it |
+| **L11 · VAE** | Exact ELBO on a 1-D latent model, a VAE trained live on 8×8 digits (latent map, decoder manifold), generation and interpolation | β = 4: posterior collapse |
+| **L12 · GAN** | 1-D duel with D vs the ideal D*, 2-D ring/moons/spiral with a mode counter | Fast generator, slow discriminator → mode collapse |
+| **L13 · Diffusion** | Forward noising and SNR, exact-score diffusion with Tweedie arrows, a learned denoiser with DDPM/DDIM, pre-trained digit model, MMSE estimate vs posterior sample | DDIM with 3 steps; MMSE blur at high noise |
 
 ## Layout
 
@@ -61,6 +76,15 @@ ssp/core/               from-scratch algorithms
     particle.py         SIR particle filter, resampling schemes, grid (exact) filter, benchmarks
     imm.py              interacting multiple model filter
     changepoint.py      Bayesian online change-point detection (Normal–Inverse-Gamma)
+    graphical.py        Bayesian network by enumeration, chain sum/max-product, Gaussian belief propagation
+    mixtures.py         Gaussian-mixture EM, BIC, mixture of experts
+    approx.py           Metropolis, Gibbs, HMC, ESS, Laplace, variational inference
+    gp.py               Bayesian linear regression + evidence, GP regression, Bayesian optimisation
+    bandits.py          A/B-then-commit, ε-greedy, UCB1, Thompson sampling
+    nn.py               MLP with hand-written backprop, Adam
+    generative.py       1-D flow, VAE, GAN, DDPM/DDIM, exact mixture score, Tweedie
+ssp/data/               8×8 digits (UCI optdigits) and the pre-trained digit diffusion weights
+scripts/                train_digits_diffusion.py (re-creates the pre-trained weights, ~3 min on a CPU)
 ssp/sims/               domain simulators (vehicle, netcode, speech, market, enhance, feedback, sports)
 cpp/                    header-only C++17 Kalman filter, Viterbi decoder, feedback canceller + exercises
 ssp/ui.py               shared plotting / layout helpers
